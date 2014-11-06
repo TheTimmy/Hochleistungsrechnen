@@ -1,6 +1,6 @@
 # Common definitions
 CC = gcc
-OPT = -O3 -msse4.1
+OPT = -O3 -msse4.1 -march=corei7
 DEBG = #-pg -g
 
 # Compiler flags, paths and libraries

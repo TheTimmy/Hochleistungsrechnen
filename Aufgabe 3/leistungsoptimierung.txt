@@ -109,7 +109,7 @@ Time:
 
 
 
-Zu guter letzt noch die Compiler Optionen -O3 und -msse4.1 einschalten,
+Zu guter letzt noch die Compiler Optionen -O3 -msse4.1 und -march=corei7 einschalten,
 daraus ergibt sich ein weiterer Leistungsgewinn von:
 
 Time:
