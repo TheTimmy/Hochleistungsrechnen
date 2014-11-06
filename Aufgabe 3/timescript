@@ -1,0 +1,3 @@
+#!/bin/sh
+NANOSEC=$(date +%N)
+echo $(hostname)":" $(date +%Hh/%Mm/%Ss)/$((($NANOSEC)/1000000))ms/$((($NANOSEC)/1000))mics/$(($NANOSEC))ns
