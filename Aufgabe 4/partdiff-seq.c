@@ -23,6 +23,7 @@
 #include <omp.h>
 #endif
 
+#include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -144,14 +145,14 @@ static
 void
 initMatrices (struct calculation_arguments* arguments, struct options const* options)
 {
-	uint64_t g, i, j;                                /*  local variables for loops   */
+	uint64_t g, i; //j ist nicht wichtig                                /*  local variables for loops   */
 
 	uint64_t const N = arguments->N;
 	double const h = arguments->h;
 	double*** Matrix = arguments->Matrix;
 
 	/* initialize matrix/matrices with zeros */
-	for (g = 0; g < arguments->num_matrices; g++)
+	/*for (g = 0; g < arguments->num_matrices; g++)
 	{
 		for (i = 0; i <= N; i++)
 		{
@@ -160,7 +161,8 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 				Matrix[g][i][j] = 0.0;
 			}
 		}
-	}
+	}*/
+	memset(**Matrix, 0, sizeof(double) * (N + 1) * (N + 1));
 
 	/* initialize borders, depending on function (function 2: nothing to do) */
 	if (options->inf_func == FUNC_F0)
@@ -197,9 +199,6 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 	int const N = arguments->N;
 	double const h = arguments->h;
 
-	double pih = 0.0;
-	double fpisin = 0.0;
-
 	int term_iteration = options->term_iteration;
 
 	/* initialize m1 and m2 depending on algorithm */
@@ -214,67 +213,114 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		m2 = 0;
 	}
 
-	if (options->inf_func == FUNC_FPISIN)
-	{
-		pih = PI * h;
-		fpisin = 0.25 * TWO_PI_SQUARE * h * h;
-	}
-
 #ifdef OPENMP
-	omp_set_dynamic(0);
         omp_set_num_threads(options->number);
-        printf("This Program use %i threads\n", omp_get_max_threads());
-	int cores = (int) options->number;
-        printf("It should use %i threads\n", cores);
 #endif
-
 	while (term_iteration > 0)
 	{
 		double** Matrix_Out = arguments->Matrix[m1];
 		double** Matrix_In  = arguments->Matrix[m2];
 
 		maxresiduum = 0;
-
-		/* over all rows */
-#if defined(OPENMP) && defined(OVER_BASE)
-		#pragma omp parallel for private(i,j,residuum) schedule(guided)
+#ifdef OPENMP
+	#ifdef OVER_BASE
+		/* einfache paralleisierung ueber die rows */
+		#pragma omp parallel for private(i, j, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 8)
+		for (i = 1; i < N; i++) {
+	#endif
+	#ifdef OVER_ROW
+		/* Only parallize over the rows*/
+		#pragma omp parallel for private(i, j, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 8)
+		for (i = 1; i < N; i++) {
+	#endif
+	#ifdef OVER_ELEM
+		int k = 0;
+		/* Only parallize over the elements */
+		#pragma omp parallel for private(i, j, k, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 64)
+		for (k = 0; k < N * (N - 1); k++) {
+			i = k / N + 1;
+			j = k % (N - 1) + 1;
+	#endif
+	#ifdef OVER_COL
+		#pragma omp parallel for private(j, i, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 8)
+		for (j = 1; j < N; j++) {
+	#endif
+#else
+		for (i = 1; i < N; i++) {
 #endif
-#if defined(OPENMP) && defined(OVER_ROW)
-		/* Only paralize over the rows*/
-		#pragma omp parallel for
-#endif
-#if defined(OPENMP) && defined(OVER_ELEM)
-		#pragma omp parallel for private(i,j)
-#endif
-		for (i = 1; i < N; i++)
-		{
 			/*
-			Remove this lines because if many threads are
-			trying to write to this variable it produces some
-			lost updates and the fpsin_i became a false value
+			Diese Zeilen wurden goloescht. Aus dem Grunund,
+			dass wenn mehrere Threads auf fpsin_i zugreifen,
+			die variable von einem anderen threaueberschrieben werden kann.
+			Somit kommt es zu lost updates und letztendlich auch zu falschen
+			werten.
 			*/
 
-			/* over all columns */
-#if defined(OPENMP) && defined(OVER_COL)
-			#pragma omp parallel for
+			/*
+			Da die Matrix Matrix_In nur read only ist, kann diesueber mehrere Threads
+			verteilt werden.
+			*/
+#ifndef OVER_COL
+			const double* rowSub1 = Matrix_In[i-1];
+			const double* row     = Matrix_In[i];
+			const double* rowAdd1 = Matrix_In[i+1];
 #endif
-			for (j = 1; j < N; j++)
-			{
-				/* Do the same as fpsin_i with star*/
-				Matrix_Out[i][j] = 0.25 * (Matrix_In[i-1][j] + Matrix_In[i][j-1] + Matrix_In[i][j+1] + Matrix_In[i+1][j]);
 
+			/* over all columns */
+#ifdef OPENMP
+	#ifdef OVER_COL
+			for (i = 1; i < N; i++)
+	#elif !defined(OVER_ELEM)
+			for (j = 1; j < i; j++)
+	#endif
+#else
+			for (j = 1; j < N; j++)
+#endif
+			{
+
+#ifdef OVER_COL
+        	                const double* rowSub1 = Matrix_In[i-1];
+	                        const double* row     = Matrix_In[i];
+                	        const double* rowAdd1 = Matrix_In[i+1];
+#endif
+
+				/* Entferne auch star aus dem Hauptscope, da es sonst zu lost updates kommen kann*/
+				double star = 0.25 * (rowSub1[j] + row[j-1] + row[j+1] + rowAdd1[j]);// + residuumMatrix[j + i * N];
 				if (options->inf_func == FUNC_FPISIN)
 				{
-					Matrix_Out[i][j] += fpisin * sin(pih * (double) i) * sin(pih * (double)j);
+					star +=  0.25 * TWO_PI_SQUARE * h * h
+						      * sin(PI * h * (double)i) * sin(PI * h * (double)j);
 				}
 
 				if (options->termination == TERM_PREC || term_iteration == 1)
 				{
-					residuum = Matrix_In[i][j] - Matrix_Out[i][j];
-					residuum = (residuum < 0) ? -residuum : residuum;
+					residuum = row[j] - star;
+	                                residuum = (residuum < 0) ? -residuum : residuum;
 					maxresiduum = (residuum < maxresiduum) ? maxresiduum : residuum;
 				}
+				Matrix_Out[i][j] = star;
 			}
+
+#if defined(OPENMP)
+	#ifdef OVER_COL
+                        const double* row     = Matrix_In[j];
+                        const double* rowAdd1 = Matrix_In[j+1];
+			i = j;
+	#endif
+			// i == j
+			Matrix_Out[i][i] = 0.5 * (rowAdd1[i] + row[i-1]);
+                        if (options->inf_func == FUNC_FPISIN)
+                        {
+	                        Matrix_Out[i][i] += 0.25 * TWO_PI_SQUARE * h * h
+                                                         * sin(PI * h * (double)i) * sin(PI * h * (double)i);
+                        }
+                        if (options->termination == TERM_PREC || term_iteration == 1)
+                        {
+                        	residuum = row[i] - Matrix_Out[i][i];
+                                residuum = (residuum < 0) ? -residuum : residuum;
+                                maxresiduum = (residuum < maxresiduum) ? maxresiduum : residuum;
+                         }
+#endif
 		}
 
 		results->stat_iteration++;
@@ -298,6 +344,17 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 			term_iteration--;
 		}
 	}
+
+#if defined(OPENMP)
+	double*** Matrix = arguments->Matrix;
+	for(i = 0; i < N; i++)
+	{
+		for(j = 0; j < i; j++)
+		{
+			Matrix[m2][j][i] = Matrix[m2][i][j];
+		}
+	}
+#endif
 
 	results->m = m2;
 }

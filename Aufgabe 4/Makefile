@@ -2,10 +2,10 @@
 CC = gcc
 
 # Compiler flags, paths and libraries
-CFLAGS = -std=c99 -pedantic -Wall -Wextra -O3 -ggdb
+CFLAGS = -std=c99 -pedantic -Wall -Wextra -O0 -ggdb #-O2 #-ggdb -pg -g
 LFLAGS = $(CFLAGS)
 LIBS   = -lm
-OMP    = -fopenmp -DOPENMP
+OMP    = -fopenmp -DOPENMP -march=corei7 #-O3
 
 STANDARD_OBJS_DIR   = partdiff-seq-objs
 MP_BASE_OBJS_DIR    = partdiff-openmp-objs
