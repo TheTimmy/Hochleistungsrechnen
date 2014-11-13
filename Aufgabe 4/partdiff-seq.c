@@ -19,6 +19,8 @@
 /* ************************************************************************ */
 #define _POSIX_C_SOURCE 200809L
 
+
+//Openmp includieren, damit alle Funktionen gefunden werden
 #if(OPENMP)
 #include <omp.h>
 #endif
@@ -151,6 +153,7 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	double const h = arguments->h;
 	double*** Matrix = arguments->Matrix;
 
+	//Das initialize wird durch das memset ersetzt, was ein wenig schneller schneller funktioniert
 	/* initialize matrix/matrices with zeros */
 	/*for (g = 0; g < arguments->num_matrices; g++)
 	{
@@ -162,6 +165,11 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 			}
 		}
 	}*/
+#ifdef OPENMP
+	//wenn Openmp untuetzt wird, dann soll die besetzung der Randwerte auch mit mehreren
+	//Treads gemacht werden.
+	omp_set_num_threads(options->number);
+#endif
 	memset(**Matrix, 0, sizeof(double) * (N + 1) * (N + 1));
 
 	/* initialize borders, depending on function (function 2: nothing to do) */
@@ -169,6 +177,12 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	{
 		for (g = 0; g < arguments->num_matrices; g++)
 		{
+#ifdef OPENMP
+			//alle werte mittels eines extra threads setzen, dabei ist i private,
+			//da alle threads ihre eigene Laufvariable haben, g und h werden
+			//auch als private gesetzt, behalten aber ihren vorherigen wert.
+			#pragma omp parallel for private(i) firstprivate(g, h) shared(Matrix)
+#endif
 			for (i = 0; i <= N; i++)
 			{
 				Matrix[g][i][0] = 1.0 - (h * i);
@@ -193,7 +207,7 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 	int i, j;                                   /* local variables for loops  */
 	int m1, m2;                                 /* used as indices for old and new matrices       */
 	//double star;                                /* four times center value minus 4 neigh.b values */
-	double residuum;                            /* residuum of current iteration                  */
+	//double residuum;                            /* residuum of current iteration                  */
 	double maxresiduum;                         /* maximum residuum value of a slave in iteration */
 
 	int const N = arguments->N;
@@ -213,113 +227,148 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		m2 = 0;
 	}
 
+	//if weggelassen, da diese berechnungen nur einmalig laufen,
+	//und ein sprung mittels brach-prediction genauso lange dauern wuerde.
+	const double piH = PI * h;
+	const double piSqrH = 0.25 * TWO_PI_SQUARE * h * h;
+
 #ifdef OPENMP
-        omp_set_num_threads(options->number);
+	//setzen der threads expilziet (der uebersichts halber, alternativ ginge es auch mit num_threads in der pragma clause)
+	omp_set_num_threads(options->number);
 #endif
+
 	while (term_iteration > 0)
 	{
 		double** Matrix_Out = arguments->Matrix[m1];
 		double** Matrix_In  = arguments->Matrix[m2];
-
 		maxresiduum = 0;
 #ifdef OPENMP
 	#ifdef OVER_BASE
+		/*
+		Parallelisiergg ueber die Spalten.
+		hierbei wird jedem Thread seine eigene i,j Variable zugewiesen.
+		Zusaetzlich bekommt jeder thread die bereits berechneten werte piH und piSqrH zugewiesen,
+		damit diese nicht wieder innerhalb der schleife berechnet werden muessen.
+		Des Weiteren werden die Variablen Matrix_In, Matrix_Out, term_iteration, options noch ueber die
+		Threads verteilt, letztendlich werden alle anderen Variablen mit der default(none) klausel
+		ausgeschlossen.
+		Die Klausel reduction(max:maxresiduum) verhindert, das eine critical Klausel innerhalb der
+		Schleife notwendig wird, somit wird dort etwas rechenzeit gespart.
+		*/
+
 		/* einfache paralleisierung ueber die rows */
-		#pragma omp parallel for private(i, j, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 8)
+		#pragma omp parallel for private(i, j) firstprivate(piH, piSqrH) shared(Matrix_In, Matrix_Out, term_iteration, options) reduction(max:maxresiduum) schedule(SCHEDULE_TYPE, SCHEDULE_SIZE) default(none)
 		for (i = 1; i < N; i++) {
 	#endif
-	#ifdef OVER_ROW
+	#ifdef OVER_COL
+		//Das gleiche gilt hier wie fuer OVER_BASE
 		/* Only parallize over the rows*/
-		#pragma omp parallel for private(i, j, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 8)
+		#pragma omp parallel for private(i, j) firstprivate( piH, piSqrH) shared(Matrix_Out, Matrix_In, term_iteration, options) reduction(max:maxresiduum) schedule(SCHEDULE_TYPE, SCHEDULE_SIZE) default(none)
 		for (i = 1; i < N; i++) {
 	#endif
 	#ifdef OVER_ELEM
+		/*
+		Bei OVER_ELEM musste die Schleife abgeaendert werden, damit alle elemente expliziet durch gelaufen werden.
+		Sonst wuerden nur die Zeilen abgebeitet werden. Damit ergiebt sich dieses Konstrukt.
+		Allerdings kann hier keine Optimierung wie bei OVER_COL oder OVER_BASE angewand werden.
+		*/
+
 		int k = 0;
 		/* Only parallize over the elements */
-		#pragma omp parallel for private(i, j, k, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 64)
+		#pragma omp parallel for private(i, j, k) firstprivate(piH, piSqrH) shared(Matrix_Out, Matrix_In, term_iteration, options) reduction(max:maxresiduum) schedule( SCHEDULE_TYPE, SCHEDULE_SIZE) default(none)
 		for (k = 0; k < N * (N - 1); k++) {
 			i = k / N + 1;
 			j = k % (N - 1) + 1;
 	#endif
-	#ifdef OVER_COL
-		#pragma omp parallel for private(j, i, residuum) shared(Matrix_Out, Matrix_In, options) reduction(max:maxresiduum) schedule(static, 8)
+	#ifdef OVER_ROW
+		/*
+		Hier muss die addressierung der Daten veraendert werden, da sonst wieder die Zeilen, und nicht
+		die Spalten abgearbeitet werden. Dies fuehrt aber zu cache problemen, da dieser nicht optimal genutzt werden
+		kann.
+		*/
+		#pragma omp parallel for private(j, i) firstprivate(piH, piSqrH) shared(Matrix_Out, Matrix_In, term_iteration, options) reduction(max:maxresiduum) schedule(SCHEDULE_TYPE, SCHEDULE_SIZE) default(none) //static, 8)
 		for (j = 1; j < N; j++) {
 	#endif
 #else
+		//Hier wird sonst die Basis implementierung abgelaufen
 		for (i = 1; i < N; i++) {
 #endif
-			/*
-			Diese Zeilen wurden goloescht. Aus dem Grunund,
-			dass wenn mehrere Threads auf fpsin_i zugreifen,
-			die variable von einem anderen threaueberschrieben werden kann.
-			Somit kommt es zu lost updates und letztendlich auch zu falschen
-			werten.
-			*/
-
 			/*
 			Da die Matrix Matrix_In nur read only ist, kann diesueber mehrere Threads
 			verteilt werden.
 			*/
-#ifndef OVER_COL
+#ifndef OVER_ROW
 			const double* rowSub1 = Matrix_In[i-1];
 			const double* row     = Matrix_In[i];
 			const double* rowAdd1 = Matrix_In[i+1];
 #endif
 
+			//Da fpisin nur im scope des Threas besteht, kann hier einfach in fpisin geschrieben werden.
+			double fpisin = 0;
+			if (options->inf_func == FUNC_FPISIN)
+			{
+#ifndef OVER_ROW
+				//fuer die Row muss die Implementierung entsprechend geaendert werden.
+				fpisin = piSqrH * sin(piH * (double)i);
+#else
+				fpisin = piSqrH * sin(piH * (double)j);
+#endif
+			}
+
 			/* over all columns */
 #ifdef OPENMP
-	#ifdef OVER_COL
+	#ifdef OVER_ROW
+			//Hier werden nun die Zeilen durchlaufen
 			for (i = 1; i < N; i++)
 	#elif !defined(OVER_ELEM)
+			//Da die for Schleife der OVER_ELEM implementierung bereits alles ablaueft duerfen hier keine
+			//weiteren Schleifen durchlaufen werden.
 			for (j = 1; j < i; j++)
 	#endif
 #else
 			for (j = 1; j < N; j++)
 #endif
 			{
-
-#ifdef OVER_COL
+#ifdef OVER_ROW
         	                const double* rowSub1 = Matrix_In[i-1];
 	                        const double* row     = Matrix_In[i];
                 	        const double* rowAdd1 = Matrix_In[i+1];
 #endif
-
 				/* Entferne auch star aus dem Hauptscope, da es sonst zu lost updates kommen kann*/
-				double star = 0.25 * (rowSub1[j] + row[j-1] + row[j+1] + rowAdd1[j]);// + residuumMatrix[j + i * N];
+				double star = 0.25 * (rowSub1[j] + row[j-1] + row[j+1] + rowAdd1[j]);
 				if (options->inf_func == FUNC_FPISIN)
 				{
-					star +=  0.25 * TWO_PI_SQUARE * h * h
-						      * sin(PI * h * (double)i) * sin(PI * h * (double)j);
+					star += fpisin * sin(piH * (double)j);
 				}
 
 				if (options->termination == TERM_PREC || term_iteration == 1)
 				{
-					residuum = row[j] - star;
-	                                residuum = (residuum < 0) ? -residuum : residuum;
+					double residuum = row[j] - star;
+	                                residuum = fabs(residuum); //(residuum < 0) ? -residuum : residuum;
 					maxresiduum = (residuum < maxresiduum) ? maxresiduum : residuum;
 				}
 				Matrix_Out[i][j] = star;
 			}
-
 #if defined(OPENMP)
-	#ifdef OVER_COL
+	#ifdef OVER_ROW
                         const double* row     = Matrix_In[j];
                         const double* rowAdd1 = Matrix_In[j+1];
 			i = j;
 	#endif
 			// i == j
-			Matrix_Out[i][i] = 0.5 * (rowAdd1[i] + row[i-1]);
-                        if (options->inf_func == FUNC_FPISIN)
+			double star = 0.5 * (row[i - 1] + rowAdd1[i]);
+			if (options->inf_func == FUNC_FPISIN)
                         {
-	                        Matrix_Out[i][i] += 0.25 * TWO_PI_SQUARE * h * h
-                                                         * sin(PI * h * (double)i) * sin(PI * h * (double)i);
+	                        star += fpisin * sin(piH * (double)i);
                         }
                         if (options->termination == TERM_PREC || term_iteration == 1)
                         {
-                        	residuum = row[i] - Matrix_Out[i][i];
-                                residuum = (residuum < 0) ? -residuum : residuum;
+                        	double residuum = row[i] - star;
+                                residuum = fabs(residuum); //(residuum < 0) ? -residuum : residuum;
                                 maxresiduum = (residuum < maxresiduum) ? maxresiduum : residuum;
-                         }
+			}
+
+			Matrix_Out[i][i] = star;
 #endif
 		}
 
@@ -343,7 +392,7 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		{
 			term_iteration--;
 		}
-	}
+	} //end while
 
 #if defined(OPENMP)
 	double*** Matrix = arguments->Matrix;
@@ -459,21 +508,21 @@ main (int argc, char** argv)
 	struct calculation_results results;
 
 	/* get parameters */
-	AskParams(&options, argc, argv);              /* ************************* */
+	AskParams(&options, argc, argv);                  /* ******************************************* */
 
-	initVariables(&arguments, &results, &options);           /* ******************************************* */
+	initVariables(&arguments, &results, &options);    /* ******************************************* */
 
-	allocateMatrices(&arguments);        /*  get and initialize variables and matrices  */
-	initMatrices(&arguments, &options);            /* ******************************************* */
+	allocateMatrices(&arguments);                     /*  get and initialize variables and matrices  */
+	initMatrices(&arguments, &options);               /* ******************************************* */
 
-	gettimeofday(&start_time, NULL);                   /*  start timer         */
-	calculate(&arguments, &results, &options);                                      /*  solve the equation  */
+	gettimeofday(&start_time, NULL);                  /*  start timer         */
+	calculate(&arguments, &results, &options);        /*  solve the equation  */
 	gettimeofday(&comp_time, NULL);                   /*  stop timer          */
 
 	displayStatistics(&arguments, &results, &options);
 	DisplayMatrix(&arguments, &results, &options);
 
-	freeMatrices(&arguments);                                       /*  free memory     */
+	freeMatrices(&arguments);                         /*  free memory     */
 
 	return 0;
 }

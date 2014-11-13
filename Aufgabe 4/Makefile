@@ -2,10 +2,10 @@
 CC = gcc
 
 # Compiler flags, paths and libraries
-CFLAGS = -std=c99 -pedantic -Wall -Wextra -O0 -ggdb #-O2 #-ggdb -pg -g
+CFLAGS = -std=c99 -pedantic -Wall -Wextra -march=corei7 -msse4.1 -O3 #-O2 -ggdb -pg -g
 LFLAGS = $(CFLAGS)
 LIBS   = -lm
-OMP    = -fopenmp -DOPENMP -march=corei7 #-O3
+OMP    = -fopenmp -DOPENMP -DSCHEDULE_TYPE=dynamic -DSCHEDULE_SIZE=4
 
 STANDARD_OBJS_DIR   = partdiff-seq-objs
 MP_BASE_OBJS_DIR    = partdiff-openmp-objs
@@ -59,4 +59,4 @@ $(MP_ELEM_OBJS_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) $(OMP) -DOVER_ELEM -c $< -o $@	
 
 clean:
-	$(RM) *.o *~ -r $(STANDARD_OBJS_DIR) -r $(MP_BASE_OBJS_DIR) -r $(MP_ROW_OBJS_DIR) -r $(MP_COL_OBJS_DIR) -r $(MP_ELEM_OBJS_DIR) partdiff-seq partdiff-openmp-spalten partdiff-openmp-zeilen
+	$(RM) *.o *~ -r $(STANDARD_OBJS_DIR) -r $(MP_BASE_OBJS_DIR) -r $(MP_ROW_OBJS_DIR) -r $(MP_COL_OBJS_DIR) -r $(MP_ELEM_OBJS_DIR) partdiff-seq partdiff-openmp partdiff-openmp-spalten partdiff-openmp-zeilen partdiff-openmp-element
