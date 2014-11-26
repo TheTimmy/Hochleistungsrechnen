@@ -81,10 +81,12 @@ int main(int argc, char** argv)
 		}
 
 		printf("%i\n", microseconds);
+		fflush(stdout);
 	}
 
 	checkError(MPI_Barrier(MPI_COMM_WORLD) != MPI_SUCCESS, "Fail to wait for all processes");
 	printf("Rank %i beendet jetzt!\n", rank);
+	fflush(stdout);
 
 	//alle allocierten daten frei geben.
 	free(namestr);
