@@ -1,0 +1,7 @@
+#!/bin/sh
+#SBATCH --time=2
+#SBATCH -N4 -n16
+#SBATCH --error=job.err --output=job.out
+
+mpiexec ./timempi
+
