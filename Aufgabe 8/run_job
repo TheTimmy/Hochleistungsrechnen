@@ -1,0 +1,6 @@
+#!/bin/sh
+#SBATCH --time=200
+#SBATCH -N2 -n2
+#SBATCH --error=job.err --output=job.out
+
+mpiexec ./partdiff-par 1 2 0 1 2 1 > test.txt
