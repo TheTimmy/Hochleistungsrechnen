@@ -19,6 +19,7 @@
 /* ************************************************************************ */
 #define _POSIX_C_SOURCE 200809L
 
+#include "mpi.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -26,25 +27,8 @@
 #include <math.h>
 #include <malloc.h>
 #include <sys/time.h>
-#include <pthread.h>
 
-#include "partdiff-seq.h"
-
-struct calculation_arguments
-{
-	uint64_t  N;              /* number of spaces between lines (lines=N+1)     */
-	uint64_t  num_matrices;   /* number of matrices                             */
-	double    h;              /* length of a space between two lines            */
-	double    ***Matrix;      /* index matrix used for addressing M             */
-	double    *M;             /* two matrices with real values                  */
-};
-
-struct calculation_results
-{
-	uint64_t  m;
-	uint64_t  stat_iteration; /* number of current iteration                    */
-	double    stat_precision; /* actual precision of all slaves in iteration    */
-};
+#include "partdiff-par.h"
 
 /* ************************************************************************ */
 /* Global variables                                                         */
@@ -62,13 +46,60 @@ static
 void
 initVariables (struct calculation_arguments* arguments, struct calculation_results* results, struct options const* options)
 {
-	arguments->N = (options->interlines * 8) + 9 - 1;
-	arguments->num_matrices = (options->method == METH_JACOBI) ? 2 : 1;
-	arguments->h = 1.0 / arguments->N;
+	arguments->globalN = (options->interlines * 8) + 9 - 1;
+	arguments->num_matrices = 2;
+	arguments->h = 1.0 / arguments->globalN;
+
+	if(arguments->commSize == 1)
+	{
+	  printf("Only one Process\n");
+	  arguments->start = 0;
+	  arguments->end   = arguments->globalN;
+	  arguments->N     = arguments->globalN;
+	}
+        else
+	{
+	  uint64_t buffer[3];
+	  if(arguments->rank == 0)
+	  {
+	    int range = arguments->globalN / arguments->commSize;
+	    int start = 0;
+	    int end = range;
+	    arguments->start = start;
+	    arguments->end   = end;
+	    arguments->N     = end - start;
+	  
+	    for(int i = 1; i < arguments->commSize - 1; i++)
+	    {
+	      start = end;
+	      end += range;
+	      
+	      buffer[0] = start - 1;
+	      buffer[1] = end;
+	      MPI_Send(buffer, 2, MPI_UINT64_T, i, 0, MPI_COMM_WORLD);
+	    }
+
+	    start = end - 1;
+	    end = arguments->globalN;
+	    buffer[0] = start;
+	    buffer[1] = end;
+	    MPI_Send(buffer, 2, MPI_UINT64_T, arguments->commSize - 1, 0, MPI_COMM_WORLD);
+	  }
+	  else
+	  {
+	    MPI_Recv(buffer, 2, MPI_UINT64_T, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	    arguments->start = buffer[0];
+	    arguments->end   = buffer[1];
+	    arguments->N     = arguments->end - arguments->start;
+	  }
+	}	
 
 	results->m = 0;
 	results->stat_iteration = 0;
 	results->stat_precision = 0;
+
+	printf("Rank: %i, go from: %"PRIu64 " to %" PRIu64 " with N: %" PRIu64 " and Global N %"PRIu64 "\n",
+	       arguments->rank, arguments->start, arguments->end, arguments->N, arguments->globalN);
 }
 
 /* ************************************************************************ */
@@ -119,8 +150,7 @@ allocateMatrices (struct calculation_arguments* arguments)
 	uint64_t i, j;
 
 	uint64_t const N = arguments->N;
-
-	arguments->M = allocateMemory(arguments->num_matrices * (N + 1) * (N + 1) * sizeof(double));
+	arguments->M = allocateMemory(arguments->num_matrices * (N + 1) * (arguments->globalN + 1) * sizeof(double));
 	arguments->Matrix = allocateMemory(arguments->num_matrices * sizeof(double**));
 
 	for (i = 0; i < arguments->num_matrices; i++)
@@ -129,9 +159,10 @@ allocateMatrices (struct calculation_arguments* arguments)
 
 		for (j = 0; j <= N; j++)
 		{
-			arguments->Matrix[i][j] = arguments->M + (i * (N + 1) * (N + 1)) + (j * (N + 1));
+			arguments->Matrix[i][j] = arguments->M + (i * (arguments->globalN + 1) * (N + 1)) + (j * (arguments->globalN + 1));
 		}
 	}
+
 }
 
 /* ************************************************************************ */
@@ -152,7 +183,7 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	{
 		for (i = 0; i <= N; i++)
 		{
-			for (j = 0; j <= N; j++)
+			for (j = 0; j <= arguments->globalN; j++)
 			{
 				Matrix[g][i][j] = 0.0;
 			}
@@ -162,108 +193,36 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	/* initialize borders, depending on function (function 2: nothing to do) */
 	if (options->inf_func == FUNC_F0)
 	{
-		for (g = 0; g < arguments->num_matrices; g++)
-		{
-			for (i = 0; i <= N; i++)
-			{
-				Matrix[g][i][0] = 1.0 - (h * i);
-				Matrix[g][i][N] = h * i;
-				Matrix[g][0][i] = 1.0 - (h * i);
-				Matrix[g][N][i] = h * i;
-			}
+	  for (g = 0; g < arguments->num_matrices; g++)
+	  {
+	    for (i = 0; i < N + 1; i++)
+	    {
+	      Matrix[g][i][0] = 1.0 - (h * (i + arguments->start));
+	      Matrix[g][i][arguments->globalN] = h * (i + arguments->start);
+	    }
+	  }
+ 
+	  if(arguments->rank == 0)
+	  {
+	    for (g = 0; g < arguments->num_matrices; g++)
+	    {
+	      for(int i = 0; i < (int) arguments->globalN; i++)
+	      {
+		Matrix[g][0][i] = 1 - h * i;
+	      }
+	    }
+	  }
 
-			Matrix[g][N][0] = 0.0;
-			Matrix[g][0][N] = 0.0;
-		}
-	}
-}
-
-/*
-Struktur, die einem Thread bei seinem start uebergeben werden,
-diese enthaelt alle wichtigen informationen ueber die Matrix
-und einige vorberechnete variablen.
-Des Weiteren wird das maxresiduum hier als pointer uebergeben,
-damit dies in den Hauptthread zurueck uebergeben werden kann.
-*/
-struct ThreadArguments
-{
-	struct options* options; //die benutzer optionsn
-	double pih; //PI * h
-	double fpisin; //PI^2/4 * h * h
-	double* maxresiduum; //das maximale residuum des threads
-	double** Matrix_In; //die eingehende Matrix
-	double** Matrix_Out; //die ausgehende Matrix
-	int N; //Die Anzahl der Rows
-	int start; //start row
-	int end; //end row
-	int term_iteration; //aktuelle iteration
-};
-
-/*
-Die Ausgelagerte calculate funktion, welche werte der Matrix pro thread berechnet.
-der void pointer ist ein ThreadArgument mit den enstprechenden eintraegen der Matrix
-*/
-static
-void
-runCalculation(void* args)
-{
-	struct ThreadArguments* arguments = args;
-	const double pih = arguments->pih;
-	const double fpisin = arguments->fpisin;
-	double fpisin_i = 0.0;
-	double star = 0.0;
-	double residuum = 0.0;
-	struct options const* options = arguments->options;
-	const int end = arguments->end;
-	const int start = arguments->start;
-	const int term_iteration = arguments->term_iteration;
-	const int N = arguments->N;
-	double** Matrix_In = arguments->Matrix_In;
-	double** Matrix_Out = arguments->Matrix_Out;
-	double* maxresiduum = arguments->maxresiduum;
-	int i, j;
-
-	//berechne vom vorgegeben start zu gegebenem end
-	for (i = start; i < end; i++)
-	{
-		if (options->inf_func == FUNC_FPISIN)
-		{
-			fpisin_i = fpisin * sin(pih * (double)i);
-		}
-
-		/* over all columns */
-		for (j = 1; j < i; j++) //halbiere die Matrix, da die anderen Werte irrelevant sind
-		{
-			star = 0.25 * (Matrix_In[i-1][j] + Matrix_In[i][j-1] + Matrix_In[i][j+1] + Matrix_In[i+1][j]);
-
-			if (options->inf_func == FUNC_FPISIN)
-			{
-				star += fpisin_i * sin(pih * (double)j);
-			}
-			if (options->termination == TERM_PREC || term_iteration == 1)
-			{
-				residuum = Matrix_In[i][j] - star;
-				residuum = (residuum < 0) ? -residuum : residuum;
-				*maxresiduum = (residuum < *maxresiduum) ? *maxresiduum : residuum;
-			}
-
-			Matrix_Out[i][j] = star;
-		}
-
-		//i == j
-		star = 0.5 * (Matrix_In[i][i-1] + Matrix_In[i+1][i]);
-		if (options->inf_func == FUNC_FPISIN)
-		{
-			star += fpisin_i * sin(pih * (double)i);
-		}
-		if(options->termination == TERM_PREC || term_iteration == 1)
-		{
-			residuum = Matrix_In[i][i] - star;
-			residuum = (residuum < 0) ? -residuum : residuum;
-			//pruefe den wert des maximums und uebergebe an den pointer wenn notwendig
-			*maxresiduum = (residuum < *maxresiduum) ? *maxresiduum : residuum;
-		}
-		Matrix_Out[i][i] = star;
+	  if(arguments->rank == arguments->commSize - 1)
+	  {
+	    for(g = 0; g < arguments->num_matrices; g++)
+	    {
+	      for(int i = 0; i < (int) arguments->globalN; i++)
+	      {
+		Matrix[g][arguments->N][i] = h * i;
+	      }
+	    }
+	  }
 	}
 }
 
@@ -279,7 +238,7 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 	double star;                                /* four times center value minus 4 neigh.b values */
 	double residuum;                            /* residuum of current iteration                  */
 	double maxresiduum;                         /* maximum residuum value of a slave in iteration */
-
+  
 	int const N = arguments->N;
 	double const h = arguments->h;
 
@@ -287,18 +246,8 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 	double fpisin = 0.0;
 
 	int term_iteration = options->term_iteration;
-
-	/* initialize m1 and m2 depending on algorithm */
-	if (options->method == METH_JACOBI)
-	{
-		m1 = 0;
-		m2 = 1;
-	}
-	else
-	{
-		m1 = 0;
-		m2 = 0;
-	}
+	m1 = 0;
+	m2 = 1;
 
 	if (options->inf_func == FUNC_FPISIN)
 	{
@@ -306,66 +255,81 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		fpisin = 0.25 * TWO_PI_SQUARE * h * h;
 	}
 
-	int threadCount                    = (options->number < N - 1) ? options->number : N - 1;
-	double* maximums                   = malloc(sizeof(double) * threadCount);
-	pthread_t* threads                 = (pthread_t*) malloc(sizeof(pthread_t) * threadCount);
-	struct ThreadArguments* threadArgs = (struct ThreadArguments*) malloc(sizeof(struct ThreadArguments) * threadCount);
-
-	//debug ausgabe
-	//printf("Run with %i Threads\n", threadCount);
-	int lastStart = 1;
-	int k = ((N - 1) * N / 2) / threadCount;
-	for(i = 0; i < threadCount; i++)
-	{
-	        //berechne einige argumente vor
-		threadArgs[i].options = options;
-		threadArgs[i].pih = pih;
-		threadArgs[i].fpisin = fpisin;
-		threadArgs[i].maxresiduum = &maximums[i];
-		threadArgs[i].Matrix_In = NULL;
-		threadArgs[i].Matrix_Out = NULL;
-		threadArgs[i].N = N;
-
-		//gibt die start row des aktuellen arguments an
-		threadArgs[i].start = lastStart;
-		//berechne dessen ende
-		threadArgs[i].end   = 0.5 * (sqrt(8 * k * (i+1) + 1) + 1); // besserer lasten ausgleich als ((float)N) / ((float) threadCount) * (i + 1) + 1;
-		//pruefe ob das ende groesser ist als die maximale Anzahl der rows
-		threadArgs[i].end   = (threadArgs[i].end > N) ? N : threadArgs[i].end;
-		//die neue start row ist das ende dieses threads
-		lastStart = threadArgs[i].end;
-
-		//debug ausgabe
-		//printf("From start %i to end %i with N: %i\n", threadArgs[i].start, threadArgs[i].end, N);
-		threadArgs[i].term_iteration = 0;
-	}
-
 	while (term_iteration > 0)
 	{
 		double** Matrix_Out = arguments->Matrix[m1];
 		double** Matrix_In  = arguments->Matrix[m2];
 
- 		maxresiduum = 0;
+		maxresiduum = 0;
+
 		/* over all rows */
-		for(i = 0; i < threadCount; i++)
+		for (i = 1; i < N; i++)
 		{
-			maximums[i] = 0;
-			threadArgs[i].term_iteration = term_iteration;
-			threadArgs[i].Matrix_In = Matrix_In;
-			threadArgs[i].Matrix_Out = Matrix_Out;
-			//starte einen neuen thread, dies ist hier eigentlich unguenstig, aber
-			//da die implementierung eines threadpools zu aufwendig ist, wird hier
-			//darauf verzichtet, und die naive methode benutzt
-			pthread_create(&threads[i], NULL, &runCalculation, (void*) &(threadArgs[i]));
+			double fpisin_i = 0.0;
+
+			double posi = i + ((double)arguments->start);
+			if (options->inf_func == FUNC_FPISIN)
+			{
+				fpisin_i = fpisin * sin(pih * (double)posi);
+			}
+
+#ifdef HALFMATRIX
+			for (j = 1; j < i; j++)
+#else
+			  for (j = 1; j < (int) arguments->globalN; j++)
+#endif
+			{
+				star = 0.25 * (Matrix_In[i-1][j] + Matrix_In[i][j-1] + Matrix_In[i][j+1] + Matrix_In[i+1][j]);
+
+				if (options->inf_func == FUNC_FPISIN)
+				{
+					star += fpisin_i * sin(pih * (double)j);
+				}
+
+				if (options->termination == TERM_PREC || term_iteration == 1)
+				{
+					residuum = Matrix_In[i][j] - star;
+					residuum = (residuum < 0) ? -residuum : residuum;
+					maxresiduum = (residuum < maxresiduum) ? maxresiduum : residuum;
+				}
+
+				Matrix_Out[i][j] = star;
+			}
+
+#ifdef HALFMATRIX
+			star = 0.25 * (Matrix_In[i][i-1] + Matrix_In[i+1][i]);
+			if (options->inf_func == FUNC_FPISIN)
+			{
+			  star += fpisin_i * sin(pih * (double)posi);
+			}
+			if (options->termination == TERM_PREC || term_iteration == 1)
+			{
+			  residuum = Matrix_In[i][i] - star;
+			  residuum = (residuum < 0) ? -residuum : residuum;
+			  maxresiduum = (residuum < maxresiduum) ? maxresiduum : residuum;
+			}
+     
+			Matrix_Out[i][i] = star;
+#endif
 		}
 
-		for(i = 0; i < threadCount; i++)
+		if(arguments->rank > 0)
 		{
-			//fuehrt den thread mit dem Hauptthread zusammen, dies geschieht erst,
-			//wenn der thread zu ende gerechnet hat
-			pthread_join(threads[i], NULL);
-			//pruefen ob das maximums des thrseadsgroesser ist als das aktuelle
-			maxresiduum = (maximums[i] < maxresiduum) ? maxresiduum : maximums[i];
+		  MPI_Sendrecv(Matrix_Out[1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank,
+			       Matrix_Out[0], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank - 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		}
+		if(arguments->rank != arguments->commSize - 1)
+		{
+		  MPI_Sendrecv(Matrix_Out[N - 1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank,
+			       Matrix_Out[N], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank + 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		}
+
+		//check for residuum
+		if(options->termination == TERM_PREC || term_iteration == 1)
+		{ 
+		  double currentResiduum = maxresiduum; 
+		  MPI_Allreduce(&maxresiduum, &currentResiduum, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+		  maxresiduum = currentResiduum;
 		}
 
 		results->stat_iteration++;
@@ -390,18 +354,6 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		}
 	}
 
-	free(threadArgs);
-	free(maximums);
-	free(threads);
-
-	double** Matrix = arguments->Matrix[m2];
-	for(i = 1; i < N; i++)
-	{
-		for(j = 1; j < i; j++)
-		{
-			Matrix[j][i] = Matrix[i][j];
-		}
-	}
 	results->m = m2;
 }
 
@@ -459,33 +411,21 @@ displayStatistics (struct calculation_arguments const* arguments, struct calcula
 	printf("\n");
 }
 
-/****************************************************************************/
-/** Beschreibung der Funktion DisplayMatrix:                               **/
-/**                                                                        **/
-/** Die Funktion DisplayMatrix gibt eine Matrix                            **/
-/** in einer "ubersichtlichen Art und Weise auf die Standardausgabe aus.   **/
-/**                                                                        **/
-/** Die "Ubersichtlichkeit wird erreicht, indem nur ein Teil der Matrix    **/
-/** ausgegeben wird. Aus der Matrix werden die Randzeilen/-spalten sowie   **/
-/** sieben Zwischenzeilen ausgegeben.                                      **/
-/****************************************************************************/
 static
 void
-DisplayMatrix (struct calculation_arguments* arguments, struct calculation_results* results, struct options* options)
+DebugDisplayMatrix (struct calculation_arguments* arguments, struct calculation_results* results, struct options* options)
 {
 	int x, y;
 
 	double** Matrix = arguments->Matrix[results->m];
-
 	int const interlines = options->interlines;
-
 	printf("Matrix:\n");
 
-	for (y = 0; y < 9; y++)
+	for (y = 0; y < (int) arguments->N + 1; y++)
 	{
-		for (x = 0; x < 9; x++)
+	  for (x = 0; x < (int) arguments->globalN + 1; x++)
 		{
-			printf ("%7.4f", Matrix[y * (interlines + 1)][x * (interlines + 1)]);
+			printf ("%7.4f", Matrix[y][x]);
 		}
 
 		printf ("\n");
@@ -493,6 +433,84 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
 
 	fflush (stdout);
 }
+
+static
+void
+DisplayMatrix (struct calculation_arguments* arguments, struct calculation_results* results, struct options* options, int rank, int size, int from, int to)
+{
+  int const elements = 8 * options->interlines + 9;
+
+  int x, y;
+  double** Matrix = arguments->Matrix[results->m];
+  MPI_Status status;
+
+  /* first line belongs to rank 0 */
+  if (rank == 0)
+    from--;
+
+  /* last line belongs to rank size - 1 */
+  if (rank + 1 == size)
+    to++;
+
+  if (rank == 0)
+    printf("Matrix:\n");
+
+  //printf("rank %i from %i to %i\n", rank, from, to);
+  for (y = 0; y < 9; y++)
+  {
+    int line = y * (options->interlines + 1);
+
+    if (rank == 0)
+    {
+      /* check whether this line belongs to rank 0 */
+      if (line < from || line > to)
+      {
+	//if(rank == 0)
+	//  printf("Need line: %i, y=%i\n", line, y);
+        /* use the tag to receive the lines in the correct order
+         * the line is stored in Matrix[0], because we do not need it anymore */
+        MPI_Recv(Matrix[0], elements, MPI_DOUBLE, MPI_ANY_SOURCE, 42 + y, MPI_COMM_WORLD, &status);
+      }
+    }
+    else
+    {
+      if (line >= from && line <= to)
+      {
+	//printf("Send line %i, rank %i, y=%i\n", line, arguments->rank, y);
+        /* if the line belongs to this process, send it to rank 0
+         * (line - from + 1) is used to calculate the correct local address */
+        MPI_Send(Matrix[line - from + 1], elements, MPI_DOUBLE, 0, 42 + y, MPI_COMM_WORLD);
+      }
+    }
+
+    if (rank == 0)
+    {
+      //if(rank == 0)
+      //  printf("Print line: %i, y=%i\n", line, y);
+
+      for (x = 0; x < 9; x++)
+      {
+        int col = x * (options->interlines + 1);
+	
+        if (line >= from && line <= to)
+        {
+          /* this line belongs to rank 0 */
+          printf("%7.4f", Matrix[line][col]);
+        }
+        else
+        {
+          /* this line belongs to another rank and was received above */
+          printf("%7.4f", Matrix[0][col]);
+        }
+      }
+
+      printf("\n");
+    }
+  }
+
+  fflush(stdout);
+}
+
 
 /* ************************************************************************ */
 /*  main                                                                    */
@@ -504,23 +522,40 @@ main (int argc, char** argv)
 	struct calculation_arguments arguments;
 	struct calculation_results results;
 
+	MPI_Init(&argc, &argv);
+	MPI_Comm_rank(MPI_COMM_WORLD, &arguments.rank);
+	MPI_Comm_size(MPI_COMM_WORLD, &arguments.commSize);
+
 	/* get parameters */
-	AskParams(&options, argc, argv);              /* ************************* */
+	AskParams(&options, argc, argv, arguments.rank);              /* ************************* */
+	if(options.interlines * 8 + 9 - 1 < arguments.commSize)
+	{
+	  if(arguments.rank == 0)
+	    printf("\n\n\n\tToo many processes for this small matrix, waste of resources and bugs can appear!\n\tPlease restart with a fewer count of processes.\n\tExit now.\n\n\n\n");
+	  MPI_Abort(MPI_COMM_WORLD, - 1);
+	}
 
 	initVariables(&arguments, &results, &options);           /* ******************************************* */
 
-	allocateMatrices(&arguments);        /*  get and initialize variables and matrices  */
-	initMatrices(&arguments, &options);            /* ******************************************* */
+	allocateMatrices(&arguments);
+	initMatrices(&arguments, &options);
 
-	gettimeofday(&start_time, NULL);                   /*  start timer         */
-	calculate(&arguments, &results, &options);                                      /*  solve the equation  */
-	gettimeofday(&comp_time, NULL);                   /*  stop timer          */
+	gettimeofday(&start_time, NULL);              
+	calculate(&arguments, &results, &options);      
+	gettimeofday(&comp_time, NULL);
 
-	displayStatistics(&arguments, &results, &options);
-	DisplayMatrix(&arguments, &results, &options);
+	if(arguments.rank == 0) 
+	{
+	  displayStatistics(&arguments, &results, &options);
+	}
 
-	freeMatrices(&arguments);                                       /*  free memory     */
+	int add = (arguments.rank > 0) ? 1 : 0;
+	int sub = (arguments.rank < arguments.commSize) ? 1 : 0;
 
-	system("Pause");
+	DisplayMatrix(&arguments, &results, &options, arguments.rank, arguments.commSize, arguments.start + add, arguments.end - sub);
+	freeMatrices(&arguments);
+
+	//printf("Process: %i exit now\n", arguments.rank);
+	MPI_Finalize();
 	return 0;
 }

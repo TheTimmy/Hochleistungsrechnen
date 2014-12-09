@@ -90,7 +90,7 @@ usage (char* name)
 	printf("\n");
 	printf("  - num:       number of threads (1 .. %d)\n", MAX_THREADS);
 	printf("  - method:    calculation method (1 .. 2)\n");
-	printf("                 %1d: Gauß-Seidel\n", METH_GAUSS_SEIDEL);
+	printf("                 %1d: GauÃŸ-Seidel\n", METH_GAUSS_SEIDEL);
 	printf("                 %1d: Jacobi\n",      METH_JACOBI);
 	printf("  - lines:     number of interlines (0 .. %d)\n", MAX_INTERLINES);
 	printf("                 matrixsize = (interlines * 8) + 9\n");
@@ -157,18 +157,20 @@ check_term_iteration (struct options* options)
 }
 
 void
-AskParams (struct options* options, int argc, char** argv)
+AskParams (struct options* options, int argc, char** argv, int rank)
 {
 	int ret;
 
-	printf("============================================================\n");
-	printf("Program for calculation of partial differential equations.  \n");
-	printf("============================================================\n");
-	printf("(c) Dr. Thomas Ludwig, TU München.\n");
-	printf("    Thomas A. Zochler, TU München.\n");
-	printf("    Andreas C. Schmidt, TU München.\n");
-	printf("============================================================\n");
-	printf("\n");
+	if(rank == 0) {
+		printf("============================================================\n");
+		printf("Program for calculation of partial differential equations.  \n");
+		printf("============================================================\n");
+		printf("(c) Dr. Thomas Ludwig, TU MÃ¼nchen.\n");
+		printf("    Thomas A. Zochler, TU MÃ¼nchen.\n");
+		printf("    Andreas C. Schmidt, TU MÃ¼nchen.\n");
+		printf("============================================================\n");
+		printf("\n");
+	}
 
 	if (argc < 2)
 	{
@@ -341,4 +343,3 @@ AskParams (struct options* options, int argc, char** argv)
 		}
 	}
 }
-
