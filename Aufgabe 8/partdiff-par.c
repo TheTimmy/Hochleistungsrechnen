@@ -30,6 +30,8 @@
 
 #include "partdiff-par.h"
 
+#define assert(x, str) { if(!x) { printf(str); MPI_Abort(MPI_COMM_WORLD, -1); } }
+
 /* ************************************************************************ */
 /* Global variables                                                         */
 /* ************************************************************************ */
@@ -38,7 +40,6 @@
 struct timeval start_time;       /* time when program started                      */
 struct timeval comp_time;        /* time when calculation completed                */
 
-
 /* ************************************************************************ */
 /* initVariables: Initializes some global variables                         */
 /* ************************************************************************ */
@@ -46,20 +47,44 @@ static
 void
 initVariables (struct calculation_arguments* arguments, struct calculation_results* results, struct options const* options)
 {
+        //das globale N zuweisen, dies wird für die Spalten benutzt 
 	arguments->globalN = (options->interlines * 8) + 9 - 1;
-	arguments->num_matrices = 2;
-	arguments->h = 1.0 / arguments->globalN;
+	arguments->num_matrices = 2; //anzahl der Matrizen ist bei Jacobi immer zwei
+	arguments->h = 1.0 / arguments->globalN; //h mittels des globalen N ermitteln
 
-	if(arguments->commSize == 1)
+	if(arguments->commSize == 1) //sonderfall für nur ein Prozess betrachten
 	{
-	  printf("Only one Process\n");
+	  //gesammte Matrix übergeben
 	  arguments->start = 0;
 	  arguments->end   = arguments->globalN;
 	  arguments->N     = arguments->globalN;
 	}
         else
 	{
-	  uint64_t buffer[3];
+	  //neuen range berechnet
+	  float range = ((float) arguments->globalN) / ((float) arguments->commSize);
+	  if(arguments->rank == 0) //für den rank 0 von 0 bis range zuweisen
+	  {
+	    arguments->start = 0;
+	    arguments->end   = range;
+	  }
+	  else if(arguments->rank == arguments->commSize - 1) //für den letzten prozess den rest zu weisen
+	  {
+	    arguments->start = ((int) range * arguments->rank) - 1;
+	    arguments->end   = arguments->globalN;
+	  }
+	  else
+	  {
+	    //allen anderen prozessen etwas dazuwischen zuweisen
+	    arguments->start = ((int) range * arguments->rank) - 1;
+	    arguments->end   = ((int) range * arguments->rank + range);
+	  }
+	  
+	  //die Anzahl der Zeilen berechnen
+	  arguments->N = arguments->end - arguments->start;
+
+	  //ALTERNATIVE MITTELS MPI
+	  /*uint64_t buffer[3];
 	  if(arguments->rank == 0)
 	  {
 	    int range = arguments->globalN / arguments->commSize;
@@ -91,15 +116,17 @@ initVariables (struct calculation_arguments* arguments, struct calculation_resul
 	    arguments->start = buffer[0];
 	    arguments->end   = buffer[1];
 	    arguments->N     = arguments->end - arguments->start;
-	  }
+	  }*/
 	}	
 
+	//Standard werte setzen
 	results->m = 0;
 	results->stat_iteration = 0;
 	results->stat_precision = 0;
 
-	printf("Rank: %i, go from: %"PRIu64 " to %" PRIu64 " with N: %" PRIu64 " and Global N %"PRIu64 "\n",
-	       arguments->rank, arguments->start, arguments->end, arguments->N, arguments->globalN);
+	//debug info
+	//printf("Rank: %i, go from: %"PRIu64 " to %" PRIu64 " with N: %" PRIu64 " and Global N %"PRIu64 "\n",
+	//       arguments->rank, arguments->start, arguments->end, arguments->N, arguments->globalN);
 }
 
 /* ************************************************************************ */
@@ -128,13 +155,11 @@ static
 void*
 allocateMemory (size_t size)
 {
-	void *p;
-
+        void *p = malloc(size);
 	if ((p = malloc(size)) == NULL)
 	{
-		printf("Speicherprobleme! (%" PRIu64 " Bytes)\n", size);
-		/* exit program */
-		exit(1);
+	  printf("Speicherprobleme! (%" PRIu64 " Bytes)\n", size);
+	  MPI_Abort(MPI_COMM_WORLD, -1);
 	}
 
 	return p;
@@ -150,6 +175,7 @@ allocateMatrices (struct calculation_arguments* arguments)
 	uint64_t i, j;
 
 	uint64_t const N = arguments->N;
+	//matrix allocieren und zwar der höhe mal der breite
 	arguments->M = allocateMemory(arguments->num_matrices * (N + 1) * (arguments->globalN + 1) * sizeof(double));
 	arguments->Matrix = allocateMemory(arguments->num_matrices * sizeof(double**));
 
@@ -159,6 +185,7 @@ allocateMatrices (struct calculation_arguments* arguments)
 
 		for (j = 0; j <= N; j++)
 		{
+		        // da die Zeilen globalN lang sind die zuweisung neu berechnen
 			arguments->Matrix[i][j] = arguments->M + (i * (arguments->globalN + 1) * (N + 1)) + (j * (arguments->globalN + 1));
 		}
 	}
@@ -195,6 +222,7 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	{
 	  for (g = 0; g < arguments->num_matrices; g++)
 	  {
+	    //werte für die Seiten zu weisen, dies berechnet sich aus dem start
 	    for (i = 0; i < N + 1; i++)
 	    {
 	      Matrix[g][i][0] = 1.0 - (h * (i + arguments->start));
@@ -202,6 +230,7 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	    }
 	  }
  
+	  //da der 0. Prozess die erste Spalte hat hier die Randwerte setzen
 	  if(arguments->rank == 0)
 	  {
 	    for (g = 0; g < arguments->num_matrices; g++)
@@ -213,6 +242,7 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	    }
 	  }
 
+	  //da der letzte Prozess die letzte Spalte hat, hier die Randwerte setzen
 	  if(arguments->rank == arguments->commSize - 1)
 	  {
 	    for(g = 0; g < arguments->num_matrices; g++)
@@ -249,12 +279,14 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 	m1 = 0;
 	m2 = 1;
 
+	//werte voreberechnen
 	if (options->inf_func == FUNC_FPISIN)
 	{
 		pih = PI * h;
 		fpisin = 0.25 * TWO_PI_SQUARE * h * h;
 	}
 
+	//iterrieren
 	while (term_iteration > 0)
 	{
 		double** Matrix_Out = arguments->Matrix[m1];
@@ -272,11 +304,12 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 			{
 				fpisin_i = fpisin * sin(pih * (double)posi);
 			}
-
+//eventuell noch über die Halbe matrix rechnen (werte müssen hier noch angepasst werden)
 #ifdef HALFMATRIX
 			for (j = 1; j < i; j++)
 #else
-			  for (j = 1; j < (int) arguments->globalN; j++)
+   		        //berechnen der ganzen Matrix, wie immer
+			for (j = 1; j < (int) arguments->globalN; j++)
 #endif
 			{
 				star = 0.25 * (Matrix_In[i-1][j] + Matrix_In[i][j-1] + Matrix_In[i][j+1] + Matrix_In[i+1][j]);
@@ -296,6 +329,7 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 				Matrix_Out[i][j] = star;
 			}
 
+//auch hier müssen werte angepasst werden beim rechnen über die Halbe matrix
 #ifdef HALFMATRIX
 			star = 0.25 * (Matrix_In[i][i-1] + Matrix_In[i+1][i]);
 			if (options->inf_func == FUNC_FPISIN)
@@ -313,22 +347,27 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 #endif
 		}
 
+		//wenn wir nicht in rank 0 sind, dann
 		if(arguments->rank > 0)
 		{
-		  MPI_Sendrecv(Matrix_Out[1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank,
-			       Matrix_Out[0], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank - 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		  //die erste Spalte senden und die berechneten Werte der oberen Prozesses empfangen und in die 0. Spalte eintragen
+		  assert(MPI_Sendrecv(Matrix_Out[1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank,
+				      Matrix_Out[0], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank - 1, 
+				      MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not send or recive Data");
 		}
 		if(arguments->rank != arguments->commSize - 1)
 		{
-		  MPI_Sendrecv(Matrix_Out[N - 1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank,
-			       Matrix_Out[N], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank + 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+		  //gleiches gilt für die untere Spalte
+		  assert(MPI_Sendrecv(Matrix_Out[N - 1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank,
+			              Matrix_Out[N], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank + 1, 
+				      MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not send or recive Data");
 		}
 
-		//check for residuum
+		//das abbruch kriterium prüfen und das maximum an alle senden
 		if(options->termination == TERM_PREC || term_iteration == 1)
 		{ 
 		  double currentResiduum = maxresiduum; 
-		  MPI_Allreduce(&maxresiduum, &currentResiduum, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+		  assert(MPI_Allreduce(&maxresiduum, &currentResiduum, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not reduce maxresiduum");
 		  maxresiduum = currentResiduum;
 		}
 
@@ -340,7 +379,7 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		m1 = m2;
 		m2 = i;
 
-		/* check for stopping calculation, depending on termination method */
+		/* abbrechen wenn das residuum kleiner als die Abbruchbedigung ist */
 		if (options->termination == TERM_PREC)
 		{
 			if (maxresiduum < options->term_precision)
@@ -411,6 +450,7 @@ displayStatistics (struct calculation_arguments const* arguments, struct calcula
 	printf("\n");
 }
 
+#ifdef DEBUG
 static
 void
 DebugDisplayMatrix (struct calculation_arguments* arguments, struct calculation_results* results, struct options* options)
@@ -433,6 +473,7 @@ DebugDisplayMatrix (struct calculation_arguments* arguments, struct calculation_
 
 	fflush (stdout);
 }
+#endif
 
 static
 void
@@ -465,26 +506,29 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
       /* check whether this line belongs to rank 0 */
       if (line < from || line > to)
       {
+	//debug ausgabe
 	//if(rank == 0)
 	//  printf("Need line: %i, y=%i\n", line, y);
         /* use the tag to receive the lines in the correct order
          * the line is stored in Matrix[0], because we do not need it anymore */
-        MPI_Recv(Matrix[0], elements, MPI_DOUBLE, MPI_ANY_SOURCE, 42 + y, MPI_COMM_WORLD, &status);
+        assert(MPI_Recv(Matrix[0], elements, MPI_DOUBLE, MPI_ANY_SOURCE, 42 + y, MPI_COMM_WORLD, &status) == MPI_SUCCESS, "Could not recive output data");
       }
     }
     else
     {
       if (line >= from && line <= to)
       {
+	//debug ausgabe
 	//printf("Send line %i, rank %i, y=%i\n", line, arguments->rank, y);
         /* if the line belongs to this process, send it to rank 0
          * (line - from + 1) is used to calculate the correct local address */
-        MPI_Send(Matrix[line - from + 1], elements, MPI_DOUBLE, 0, 42 + y, MPI_COMM_WORLD);
+        assert(MPI_Send(Matrix[line - from + 1], elements, MPI_DOUBLE, 0, 42 + y, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not send output data");
       }
     }
 
     if (rank == 0)
     {
+      //debug ausgabe
       //if(rank == 0)
       //  printf("Print line: %i, y=%i\n", line, y);
 
@@ -522,21 +566,28 @@ main (int argc, char** argv)
 	struct calculation_arguments arguments;
 	struct calculation_results results;
 
-	MPI_Init(&argc, &argv);
-	MPI_Comm_rank(MPI_COMM_WORLD, &arguments.rank);
-	MPI_Comm_size(MPI_COMM_WORLD, &arguments.commSize);
+	//initialisieren
+	assert(MPI_Init(&argc, &argv) == MPI_SUCCESS, "Could not init mpi\n");
+	//rank herrausfinden
+	assert(MPI_Comm_rank(MPI_COMM_WORLD, &arguments.rank) == MPI_SUCCESS, "Could not get the rank of this process\n");
+	//anzahl der Prozesse herrausfinden
+	assert(MPI_Comm_size(MPI_COMM_WORLD, &arguments.commSize) == MPI_SUCCESS, "Could not get the comm size of processes\n");
 
 	/* get parameters */
-	AskParams(&options, argc, argv, arguments.rank);              /* ************************* */
-	if(options.interlines * 8 + 9 - 1 < arguments.commSize)
+	AskParams(&options, argc, argv, arguments.rank);
+	//wenn mehr als doppelt so viele prozesse für die interlines vorhanden sind abbrechen, da sich prozesse sonst Zeilen teilen und es zu bugs kommt.
+	if(options.interlines * 8 + 9 - 1 < arguments.commSize * 2)
 	{
+	  //prüfen ob mehr prozesse vorhanden sind als die Matrix gross ist
 	  if(arguments.rank == 0)
 	    printf("\n\n\n\tToo many processes for this small matrix, waste of resources and bugs can appear!\n\tPlease restart with a fewer count of processes.\n\tExit now.\n\n\n\n");
+
+	  fflush(stdout);
+	  //beenden
 	  MPI_Abort(MPI_COMM_WORLD, - 1);
 	}
 
-	initVariables(&arguments, &results, &options);           /* ******************************************* */
-
+	initVariables(&arguments, &results, &options);
 	allocateMatrices(&arguments);
 	initMatrices(&arguments, &options);
 
@@ -544,18 +595,22 @@ main (int argc, char** argv)
 	calculate(&arguments, &results, &options);      
 	gettimeofday(&comp_time, NULL);
 
+	//statistik ausgeben
 	if(arguments.rank == 0) 
 	{
 	  displayStatistics(&arguments, &results, &options);
 	}
 
+	//die matrix um die erweiterten elemente verkleinern
 	int add = (arguments.rank > 0) ? 1 : 0;
 	int sub = (arguments.rank < arguments.commSize) ? 1 : 0;
-
+	//ausgeben
 	DisplayMatrix(&arguments, &results, &options, arguments.rank, arguments.commSize, arguments.start + add, arguments.end - sub);
+	//daten freigeben
 	freeMatrices(&arguments);
 
+	//beenden
 	//printf("Process: %i exit now\n", arguments.rank);
-	MPI_Finalize();
+	assert(MPI_Finalize() == MPI_SUCCESS, "Could not finalize mpi\n");
 	return 0;
 }
