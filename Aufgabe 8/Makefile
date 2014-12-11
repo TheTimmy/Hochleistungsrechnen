@@ -7,23 +7,38 @@ LFLAGS = $(CFLAGS)
 LIBS   = -lm
 
 OBJS = partdiff-par.o askparams.o 
-#displaymatrix-mpi.o
+
+STANDARD_OBJS_DIR = partdiff-par-objs
+OPENMP_OBJS_DIR   = partdiff-par-hybrid-objs
+
+STANDARD_OBJS = $(addprefix $(STANDARD_OBJS_DIR)/, $(OBJS))
+OPENMP_OBJS   = $(addprefix $(OPENMP_OBJS_DIR)/, $(OBJS))
 
 # Rule to create *.o from *.c
-.c.o:
-	$(CC) -c $(CFLAGS) $*.c
+#.c.o:
+#	$(CC) -c $(CFLAGS) $*.c
 
 # Targets ...
-all: partdiff-par
+all: partdiff-par partdiff-par-hybrid
 
-partdiff-par: $(OBJS) Makefile
-	$(CC) $(LFLAGS) -o $@ $(OBJS) $(LIBS)
+partdiff-par: $(STANDARD_OBJS) Makefile
+	$(CC) $(CFLAGS) $(LFLAGS) -o $@ $(STANDARD_OBJS) $(LIBS)
+
+partdiff-par-hybrid: $(OPENMP_OBJS) Makefile
+	$(CC) $(CFLAGS) $(LFLAGS) -fopenmp -DOPENMP -o $@ $(OPENMP_OBJS) $(LIBS) 
 
 clean:
-	$(RM) *.o *~
+	$(RM) *.o *~ -r $(STANDARD_OBJS_DIR) -r $(OPENMP_OBJS_DIR) -f partdiff-par partdiff-par-hybrid
 
-partdiff-par.o: partdiff-par.c Makefile
+$(STANDARD_OBJS_DIR)/%.o: %.c
+	@mkdir -p $(STANDARD_OBJS_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-askparams.o: askparams.c Makefile
+$(OPENMP_OBJS_DIR)/%.o: %.c
+	@mkdir -p $(OPENMP_OBJS_DIR)
+	$(CC) $(CFLAGS) -fopenmp -DOPENMP -c $< -o $@
 
+
+#partdiff-par.o: partdiff-par.c Makefile
+#askparams.o: askparams.c Makefile
 #displaymatrix-mpi.o: displaymatrix-mpi.c Makefile

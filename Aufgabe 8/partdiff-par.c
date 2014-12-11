@@ -20,6 +20,11 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "mpi.h"
+
+#ifdef OPENMP
+	#include "omp.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -79,7 +84,7 @@ initVariables (struct calculation_arguments* arguments, struct calculation_resul
 	    arguments->start = ((int) range * arguments->rank) - 1;
 	    arguments->end   = ((int) range * arguments->rank + range);
 	  }
-	  
+
 	  //die Anzahl der Zeilen berechnen
 	  arguments->N = arguments->end - arguments->start;
 
@@ -93,12 +98,12 @@ initVariables (struct calculation_arguments* arguments, struct calculation_resul
 	    arguments->start = start;
 	    arguments->end   = end;
 	    arguments->N     = end - start;
-	  
+
 	    for(int i = 1; i < arguments->commSize - 1; i++)
 	    {
 	      start = end;
 	      end += range;
-	      
+
 	      buffer[0] = start - 1;
 	      buffer[1] = end;
 	      MPI_Send(buffer, 2, MPI_UINT64_T, i, 0, MPI_COMM_WORLD);
@@ -117,7 +122,7 @@ initVariables (struct calculation_arguments* arguments, struct calculation_resul
 	    arguments->end   = buffer[1];
 	    arguments->N     = arguments->end - arguments->start;
 	  }*/
-	}	
+	}
 
 	//Standard werte setzen
 	results->m = 0;
@@ -229,7 +234,7 @@ initMatrices (struct calculation_arguments* arguments, struct options const* opt
 	      Matrix[g][i][arguments->globalN] = h * (i + arguments->start);
 	    }
 	  }
- 
+
 	  //da der 0. Prozess die erste Spalte hat hier die Randwerte setzen
 	  if(arguments->rank == 0)
 	  {
@@ -268,7 +273,7 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 	double star;                                /* four times center value minus 4 neigh.b values */
 	double residuum;                            /* residuum of current iteration                  */
 	double maxresiduum;                         /* maximum residuum value of a slave in iteration */
-  
+
 	int const N = arguments->N;
 	double const h = arguments->h;
 
@@ -286,6 +291,11 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		fpisin = 0.25 * TWO_PI_SQUARE * h * h;
 	}
 
+#ifdef OPENMP
+	omp_set_dynamic(0);
+	omp_set_num_threads(options->number);
+#endif
+
 	//iterrieren
 	while (term_iteration > 0)
 	{
@@ -295,6 +305,9 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 		maxresiduum = 0;
 
 		/* over all rows */
+#ifdef OPENMP
+		#pragma omp parallel for private(i, j, star, residuum, ) firstprivate(pih, fpisin, m1, m2, term_iteration) shared(Matrix_Out, Matrix_In, options, arguments) reduction(max:maxresiduum)  default(none)
+#endif
 		for (i = 1; i < N; i++)
 		{
 			double fpisin_i = 0.0;
@@ -342,7 +355,7 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 			  residuum = (residuum < 0) ? -residuum : residuum;
 			  maxresiduum = (residuum < maxresiduum) ? maxresiduum : residuum;
 			}
-     
+
 			Matrix_Out[i][i] = star;
 #endif
 		}
@@ -365,8 +378,8 @@ calculate (struct calculation_arguments const* arguments, struct calculation_res
 
 		//das abbruch kriterium prüfen und das maximum an alle senden
 		if(options->termination == TERM_PREC || term_iteration == 1)
-		{ 
-		  double currentResiduum = maxresiduum; 
+		{
+		  double currentResiduum = maxresiduum;
 		  assert(MPI_Allreduce(&maxresiduum, &currentResiduum, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not reduce maxresiduum");
 		  maxresiduum = currentResiduum;
 		}
@@ -535,7 +548,7 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
       for (x = 0; x < 9; x++)
       {
         int col = x * (options->interlines + 1);
-	
+
         if (line >= from && line <= to)
         {
           /* this line belongs to rank 0 */
@@ -591,12 +604,12 @@ main (int argc, char** argv)
 	allocateMatrices(&arguments);
 	initMatrices(&arguments, &options);
 
-	gettimeofday(&start_time, NULL);              
-	calculate(&arguments, &results, &options);      
+	gettimeofday(&start_time, NULL);
+	calculate(&arguments, &results, &options);
 	gettimeofday(&comp_time, NULL);
 
 	//statistik ausgeben
-	if(arguments.rank == 0) 
+	if(arguments.rank == 0)
 	{
 	  displayStatistics(&arguments, &results, &options);
 	}
