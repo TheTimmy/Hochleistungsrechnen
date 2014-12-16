@@ -1,0 +1,32 @@
+#!/bin/sh
+#SBATCH --time=200
+#SBATCH -N 3
+#SBATCH --output=job.out --error=job.err
+
+mpiexec -n 24 ./partdiff-par-hybrid 1 2 512 2 2 2048 > run/process24.1.1
+mpiexec -n 24 ./partdiff-par-hybrid 1 2 512 2 2 2048 > run/process24.1.2
+mpiexec -n 24 ./partdiff-par-hybrid 1 2 512 2 2 2048 > run/process24.1.3
+
+mpiexec -n 12 ./partdiff-par-hybrid 1 2 512 2 2 2048 > run/process12.1.1
+mpiexec -n 12 ./partdiff-par-hybrid 1 2 512 2 2 2048 > run/process12.1.2
+mpiexec -n 12 ./partdiff-par-hybrid 1 2 512 2 2 2048 > run/process12.1.3
+
+mpiexec -n 1 ./partdiff-par-hybrid 12 2 512 2 2 2048 > run/process1.12.1
+mpiexec -n 1 ./partdiff-par-hybrid 12 2 512 2 2 2048 > run/process1.12.2
+mpiexec -n 1 ./partdiff-par-hybrid 12 2 512 2 2 2048 > run/process1.12.3
+
+mpiexec -n 1 ./partdiff-par-hybrid 24 2 512 2 2 2048 > run/process1.24.1
+mpiexec -n 1 ./partdiff-par-hybrid 24 2 512 2 2 2048 > run/process1.24.2
+mpiexec -n 1 ./partdiff-par-hybrid 24 2 512 2 2 2048 > run/process1.24.3
+
+mpiexec -n 2 ./partdiff-par-hybrid 6 2 512 2 2 2048 > run/process2.6.1
+mpiexec -n 2 ./partdiff-par-hybrid 6 2 512 2 2 2048 > run/process2.6.2
+mpiexec -n 2 ./partdiff-par-hybrid 6 2 512 2 2 2048 > run/process2.6.3
+
+mpiexec -n 2 ./partdiff-par-hybrid 12 2 512 2 2 2048 > run/process2.12.1
+mpiexec -n 2 ./partdiff-par-hybrid 12 2 512 2 2 2048 > run/process2.12.2
+mpiexec -n 2 ./partdiff-par-hybrid 12 2 512 2 2 2048 > run/process2.12.3
+
+mpiexec -n 12 ./partdiff-par-hybrid 2 2 512 2 2 2048 > run/process12.2.1
+mpiexec -n 12 ./partdiff-par-hybrid 2 2 512 2 2 2048 > run/process12.2.2
+mpiexec -n 12 ./partdiff-par-hybrid 2 2 512 2 2 2048 > run/process12.2.3

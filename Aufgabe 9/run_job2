@@ -1,0 +1,6 @@
+#!/bin/sh
+#SBATCH -N 1 -n 4
+#SBATCH --time=200
+#SBATCH --output=job.out
+
+mpirun ./partdiff-par 1 1 1024 2 2 256
