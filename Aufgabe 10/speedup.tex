@@ -127,7 +127,6 @@ Prozesse & Knoten & Interlines & Zeit in Sekunden \\
 \end{tabular}
 \end{figure}
 \par\noindent
-Auf den letzten beiden Diagrammen ist der Tradeoff zwischen der Anzahl der Knoten und den Prozessen zu sehen. Hierbei ist deutlich zu erkennen, dass der Speedup deutlich zu nimmt je mehr sich die Anzahl der Prozesse den der Knoten nähern.
-Dies folgt daraus, dass die Daten besser auf geteilt werden je mehr Prozesse existieren und es somit zu einem Speedup kommt.
-Auch hier ist zu erkennen, dass das Gauss Seidel verfahren deutlich langsamer ist als das Jacobi Verfahren.
+Auf den letzten beiden Diagrammen ist der Tradeoff zwischen der Anzahl der Knoten und den Prozessen zu sehen. Hierbei ist deutlich zu erkennen, dass der Speedup deutlich zu nimmt je weniger Prozesse benutzt werden.
+Dies folgt daraus, dass die Daten zwar bei vielen Prozessen besser auf geteilt werden, aber die Kommunikation zu lange im Vergleich zur Rechnung braucht. Auch hier ist zu erkennen, dass das Gauss Seidel verfahren deutlich langsamer ist als das Jacobi Verfahren.
 \end{document}
