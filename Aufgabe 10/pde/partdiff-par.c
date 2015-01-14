@@ -76,19 +76,32 @@ initVariables (struct calculation_arguments* arguments, struct calculation_resul
 	  if(arguments->rank == 0) //für den rank 0 von 0 bis range zuweisen
 	  {
 	    arguments->start = 0;
+#ifndef HALF
 	    arguments->end   = range;
-	    //arguments->end   = 0.5 * (sqrt(8 * k * (arguments->rank + 1) + 1) + 1);
+#else
+	    arguments->end   = 0.5 * (sqrt(8 * k * (arguments->rank + 1) + 1) + 1);
+#endif
 	  }
 	  else if(arguments->rank == arguments->commSize - 1) //für den letzten prozess den rest zu weisen
 	  {
+#ifndef HALF
 	    arguments->start = ((int) range * arguments->rank) - 1;
 	    arguments->end   = arguments->globalN;
+#else
+	    arguments->start   = 0.5 * (sqrt(8 * k * arguments->rank + 1) + 1) - 1;
+	    arguments->end   = arguments->globalN;
+#endif
 	  }
 	  else
 	  {
+#ifndef HALF
 	    //allen anderen prozessen etwas dazuwischen zuweisen
 	    arguments->start = ((int) range * arguments->rank) - 1;
 	    arguments->end   = ((int) range * arguments->rank + range);
+#else
+	    arguments->start  = 0.5 * (sqrt(8 * k * arguments->rank + 1) + 1) - 1;
+	    arguments->end    = 0.5 * (sqrt(8 * k * (arguments->rank + 1) + 1) + 1);
+#endif
 	  }
 
 	  //die Anzahl der Zeilen berechnen
@@ -897,8 +910,10 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
       if (line < from || line > to)
       {
 	//debug ausgabe
-	//if(rank == 0)
-	//  printf("Need line: %i, y=%i\n", line, y);
+#ifdef DEBUG
+	if(rank == 0)
+	  printf("Need line: %i, y=%i\n", line, y);
+#endif
         /* use the tag to receive the lines in the correct order
          * the line is stored in Matrix[0], because we do not need it anymore */
         assert(MPI_Recv(Matrix[0], elements, MPI_DOUBLE, MPI_ANY_SOURCE, 42 + y, MPI_COMM_WORLD, &status) == MPI_SUCCESS, "Could not recive output data");
@@ -909,7 +924,9 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
       if (line >= from && line <= to)
       {
 	//debug ausgabe
-	//printf("Send line %i, rank %i, y=%i\n", line, arguments->rank, y);
+#ifdef DEBUG
+	printf("Send line %i, rank %i, y=%i\n", line, arguments->rank, y);
+#endif
         /* if the line belongs to this process, send it to rank 0
          * (line - from + 1) is used to calculate the correct local address */
         assert(MPI_Send(Matrix[line - from + 1], elements, MPI_DOUBLE, 0, 42 + y, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not send output data");
@@ -959,7 +976,7 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
 	smallMatrix[j * 9 + i] = smallMatrix[i * 9 + j];
       }
     }
-    
+
     for(int i = 0; i < 9; i++)
     {
       for(int j = 0; j < 9; j++)
