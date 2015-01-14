@@ -2,7 +2,7 @@
 CC = mpicc #vtcc -vt:cc mpicc
 
 # Compiler flags, paths and libraries
-CFLAGS = -std=c99 -pedantic -Wall -Wextra -O2 #-march=corei7 -msse4.1 -ggdb
+CFLAGS = -std=c99 -pedantic -Wall -Wextra -O2 -ggdb#-march=corei7 -msse4.1 -ggdb
 LFLAGS = $(CFLAGS)
 LIBS   = -lm
 

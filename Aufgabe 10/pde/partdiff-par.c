@@ -45,6 +45,7 @@
 struct timeval start_time;       /* time when program started                      */
 struct timeval comp_time;        /* time when calculation completed                */
 
+
 /* ************************************************************************ */
 /* initVariables: Initializes some global variables                         */
 /* ************************************************************************ */
@@ -66,12 +67,17 @@ initVariables (struct calculation_arguments* arguments, struct calculation_resul
 	}
         else
 	{
+#ifdef HALF
+	  int k = ((arguments->globalN - 1) * arguments->globalN / 2) / arguments->commSize;
+#endif
+
 	  //neuen range berechnet
 	  float range = ((float) arguments->globalN) / ((float) arguments->commSize);
 	  if(arguments->rank == 0) //für den rank 0 von 0 bis range zuweisen
 	  {
 	    arguments->start = 0;
 	    arguments->end   = range;
+	    //arguments->end   = 0.5 * (sqrt(8 * k * (arguments->rank + 1) + 1) + 1);
 	  }
 	  else if(arguments->rank == arguments->commSize - 1) //für den letzten prozess den rest zu weisen
 	  {
@@ -88,6 +94,10 @@ initVariables (struct calculation_arguments* arguments, struct calculation_resul
 	  //die Anzahl der Zeilen berechnen
 	  arguments->N = arguments->end - arguments->start;
 	}
+
+#ifdef DEBUG
+	printf("Rank %i starts at %i to %i\n", arguments->rank, arguments->start, arguments->end);
+#endif
 
 	//Standard werte setzen
 	results->m = 0;
@@ -331,17 +341,35 @@ calculateJacobi (struct calculation_arguments const* arguments, struct calculati
 		//wenn wir nicht in rank 0 sind, dann
 		if(arguments->rank > 0)
 		{
+#ifndef HALF
 		  //die erste Spalte senden und die berechneten Werte der oberen Prozesses empfangen und in die 0. Spalte eintragen
 		  assert(MPI_Sendrecv(Matrix_Out[1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank,
 				      Matrix_Out[0], arguments->globalN + 1, MPI_DOUBLE, arguments->rank - 1, arguments->rank - 1, 
 				      MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not send or recive Data");
+#else
+		  const int send = arguments->start + 1;
+		  const int recv = arguments->start + 1;
+		  //die erste Spalte senden und die berechneten Werte der oberen Prozesses empfangen und in die 0. Spalte eintragen
+		  assert(MPI_Sendrecv(Matrix_Out[1], send, MPI_DOUBLE, arguments->rank - 1, arguments->rank,
+				      Matrix_Out[0], recv, MPI_DOUBLE, arguments->rank - 1, arguments->rank - 1, 
+				      MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not send or recive Data");
+#endif
 		}
 		if(arguments->rank != arguments->commSize - 1)
 		{
+#ifndef HALF
 		  //gleiches gilt für die untere Spalte
 		  assert(MPI_Sendrecv(Matrix_Out[N - 1], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank,
 			              Matrix_Out[N], arguments->globalN + 1, MPI_DOUBLE, arguments->rank + 1, arguments->rank + 1, 
 				      MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not send or recive Data");
+#else
+		  const int send = arguments->end;
+		  const int recv = arguments->end;
+		  //gleiches gilt für die untere Spalte
+		  assert(MPI_Sendrecv(Matrix_Out[N - 1], send, MPI_DOUBLE, arguments->rank + 1, arguments->rank,
+			              Matrix_Out[N], recv, MPI_DOUBLE, arguments->rank + 1, arguments->rank + 1, 
+				      MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not send or recive Data");
+#endif
 		}
 
 		//das abbruch kriterium prüfen und das maximum an alle senden
@@ -429,8 +457,11 @@ calculateGaussSeidel (struct calculation_arguments const* arguments, struct calc
 #endif
 		  //hier werden die werte, welche unten gesendet wurden nun empfangen, hierbei ist rank + iteration noetig, damit
 		  //es zu keinem Konfikt zwischen dem globalen maxresiduum kommt.
+#ifndef HALF
 		  assert(MPI_Recv(Matrix_Out[0], arguments->globalN, MPI_DOUBLE, rank - 1, rank + results->stat_iteration, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not recv the matrix\n");
-
+#else
+		  assert(MPI_Recv(Matrix_Out[0], arguments->start + 1, MPI_DOUBLE, rank - 1, rank + results->stat_iteration, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not recv the matrix\n");
+#endif
 		  if(options->termination == TERM_PREC || term_iteration == 1)
 		  {
 		    //das globale residuum welches in dieser kommenden iteration vom Prozess rank - 1 berechnet wurde abholen und damit weiter rechnen
@@ -460,8 +491,12 @@ calculateGaussSeidel (struct calculation_arguments const* arguments, struct calc
 		    printf("Rank %i recv from %i, in iteration %i\n", rank, rank + 1, results->stat_iteration + 1);
 #endif
 		    //die werte werten jetzt von den unten geschickten empfangen, hierbei ist rank + iteration + 1 noetig, damit dies nicht
-		    //in den Konflikt mit dem gesendeten max residuum kommt. 
+		    //in den Konflikt mit dem gesendeten max residuum kommt.
+#ifndef HALF
 		    assert(MPI_Recv(Matrix_Out[N], arguments->globalN, MPI_DOUBLE, rank + 1, rank + results->stat_iteration + 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not recv the matrix\n");
+#else
+		    assert(MPI_Recv(Matrix_Out[N], arguments->end + 1, MPI_DOUBLE, rank + 1, rank + results->stat_iteration + 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE) == MPI_SUCCESS, "Could not recv the matrix\n");
+#endif
 
 		    //das termination flag auch von oben abholen, damit dies wenn es auf 1 gesetzt wurde auch den kommenden prozessen dies mitteilt
 		    if(options->termination == TERM_PREC)
@@ -631,9 +666,12 @@ calculateGaussSeidel (struct calculation_arguments const* arguments, struct calc
 #ifdef DEBUG
 		    printf("Rank %i send to %i, in iteration %i\n", rank, rank - 1, results->stat_iteration + 1);
 #endif
+#ifndef HALF
 		    //Die obere Zeile an den uebergeordenten Prozess senden, da dieser die werte fuer die letzte Zeile benoetigt.
 		    assert(MPI_Send(Matrix_Out[1], arguments->globalN, MPI_DOUBLE, rank - 1, rank + results->stat_iteration + 1, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not send the matrix part\n");
-
+#else
+		    assert(MPI_Send(Matrix_Out[1], arguments->start + 2, MPI_DOUBLE, rank - 1, rank + results->stat_iteration + 1, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not send the matrix part\n");
+#endif
 		    //das termination flag an den kommenden prozess weiter reichen
 		    if(options->termination == TERM_PREC)
 		    {
@@ -649,7 +687,11 @@ calculateGaussSeidel (struct calculation_arguments const* arguments, struct calc
 		    //Die unteren Matrix werte sind fuer den naechsten Prozess wichtig, da dieser diese fuer die naechste Iteration benoetigt.
 		    //Daher senden wir diese werte an den Prozess plus 1. Der Tag ist außerdem wichtig, damit der Prozess die richtigen werte spaeter
 		    //abfragt, damit keine falschen werte entstehen.
+#ifndef HALF
 		    assert(MPI_Send(Matrix_Out[arguments->N - 1], arguments->globalN, MPI_DOUBLE, rank + 1, rank + results->stat_iteration + 1, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not send the matrix part\n");
+#else
+		    assert(MPI_Send(Matrix_Out[arguments->N - 1], arguments->end, MPI_DOUBLE, rank + 1, rank + results->stat_iteration + 1, MPI_COMM_WORLD) == MPI_SUCCESS, "Could not send the matrix part\n");
+#endif
 		    //das neuberechnete residuum an den naechsten Prozess weiter reichen
 		    if(options->termination == TERM_PREC || term_iteration == 1)
 		    {
@@ -819,90 +861,6 @@ DebugDisplayMatrix (struct calculation_arguments* arguments, struct calculation_
 }
 #endif
 
-#ifdef HALF
-/*
- Da nur die halbe matrix berechnet wurde muss nun die andere haelfte an auf die andere seite transponiert gesendet werden
- dies erfuellt die mirrorMatrix funktion
- */
-static
-void
-mirrorMatrix(struct calculation_arguments* arguments, struct calculation_results* results)
-{
-        unsigned int i = 0;
-	unsigned int j = 0;
-	if (arguments->commSize > 1)
-	{	
-	  int range = (int) ((float) (arguments->globalN) / ((float) (arguments->commSize)));
-	  double* row = malloc(sizeof(double) * arguments->globalN);
-	  if (arguments->rank < arguments->commSize / 2)
-	  {  
-	    for(i = 1; i < arguments->N; i++)
-	    {
-	      const int current  = arguments->start + i;
-	      const int recv     = arguments->globalN - current;
-	      int currentProcess = current / range;
-	      int recvProcess    = recv / range;
-
-	      currentProcess = (currentProcess < arguments->commSize - 1) ? currentProcess : arguments->commSize - 1;
-	      recvProcess    = (recvProcess < arguments->commSize - 1) ? recvProcess : arguments->commSize - 1;
-//#ifdef DEBUG
-	      printf("Send %i (%i) recv %i (%i)\n", current, current / range, recv, recv / range);
-//#endif
-	      if(current != recv)
-	      {
-		MPI_Send(arguments->Matrix[results->m][i], arguments->globalN, MPI_DOUBLE, recvProcess, current, MPI_COMM_WORLD);
-		MPI_Recv(row, arguments->globalN, MPI_DOUBLE, recvProcess, recv, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-		for(j = arguments->start + i; j < arguments->globalN; j++)
-		  arguments->Matrix[results->m][i][j] = row[arguments->globalN - j];
-	      }
-	      else
-	      {
-		for(j = arguments->start + i; j < arguments->globalN; j++)
-		  arguments->Matrix[results->m][i][j] = arguments->Matrix[results->m][i][arguments->globalN - j];
-	      }
-	    }
-	  }
-	  else
-	  {
-	    for(i = arguments->N - 1; i > 0; i--)
-	    {
-	      const int current  = arguments->start + i;
-	      const int recv     = arguments->globalN - current;
-	      int currentProcess = current / range;
-	      int recvProcess    = recv / range;
-	      //#ifdef DEBUG
-     	      printf("Send %i (%i) recv %i (%i)\n", current, current / range, recv, recv / range);
-	      //#endif  
-	      if(current != recv)
-	      {
-		MPI_Recv(row, arguments->globalN, MPI_DOUBLE, recv / range, recv, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		MPI_Send(arguments->Matrix[results->m][i], arguments->globalN, MPI_DOUBLE, recv / range, current, MPI_COMM_WORLD);
-		
-		for(j = arguments->start + i; j < arguments->globalN; j++)
-		  arguments->Matrix[results->m][i][j] = row[arguments->globalN - j];
-	      }
-	      else
-	      {
-		for(j = arguments->start + i; j < arguments->globalN; j++)
-		  arguments->Matrix[results->m][i][j] = arguments->Matrix[results->m][i][arguments->globalN - j];
-	      }
-	    }
-	  }
-	}
-	else
-	{
-	        for(i = 1; i < arguments->globalN; i++)
-	        {
-	                for(j = 1; j < arguments->globalN; j++)
-	                {
- 	                         arguments->Matrix[results->m][j][i] = arguments->Matrix[results->m][i][j];
-			}
-		}
-	}
-}
-#endif
-
 static
 void
 DisplayMatrix (struct calculation_arguments* arguments, struct calculation_results* results, struct options* options, int rank, int size, int from, int to)
@@ -922,7 +880,11 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
     to++;
 
   if (rank == 0)
-    printf("Matrix:\n");
+    printf("\nMatrix:\n");
+
+#ifdef HALF
+  double* smallMatrix = malloc(sizeof(double) * 9 * 9);
+#endif
 
   //printf("rank %i from %i to %i\n", rank, from, to);
   for (y = 0; y < 9; y++)
@@ -959,27 +921,56 @@ DisplayMatrix (struct calculation_arguments* arguments, struct calculation_resul
       //debug ausgabe
       //if(rank == 0)
       //  printf("Print line: %i, y=%i\n", line, y);
-
       for (x = 0; x < 9; x++)
       {
         int col = x * (options->interlines + 1);
-
         if (line >= from && line <= to)
         {
+#ifndef HALF
           /* this line belongs to rank 0 */
           printf("%7.4f", Matrix[line][col]);
+#else
+	  smallMatrix[y * 9 + x] = Matrix[line][col];
+#endif
         }
         else
         {
+#ifndef HALF
           /* this line belongs to another rank and was received above */
           printf("%7.4f", Matrix[0][col]);
+#else
+  	  smallMatrix[y * 9 + x] = Matrix[0][col];
+#endif
         }
       }
-
-      printf("\n");
+#ifndef HALF
+	printf("\n");
+#endif
     }
   }
 
+#ifdef HALF
+  if(rank == 0)
+  {
+    for(int i = 1; i < 9; i++)
+    {
+      for(int j = 1; j < i; j++)
+      {
+	smallMatrix[j * 9 + i] = smallMatrix[i * 9 + j];
+      }
+    }
+    
+    for(int i = 0; i < 9; i++)
+    {
+      for(int j = 0; j < 9; j++)
+      {
+	printf("%7.4f", smallMatrix[i * 9 + j]);
+      }
+      printf("\n");
+    }
+    free(smallMatrix);
+  }
+#endif
   fflush(stdout);
 }
 
@@ -1025,18 +1016,13 @@ main (int argc, char** argv)
 	else
 	  calculateGaussSeidel(&arguments, &results, &options);
 	gettimeofday(&comp_time, NULL);
+	MPI_Barrier(MPI_COMM_WORLD);
 
-#ifdef HALF
-	MPI_Barrier(MPI_COMM_WORLD);
-	mirrorMatrix(&arguments, &results);
-#endif
-	MPI_Barrier(MPI_COMM_WORLD);
 	//statistik ausgeben
 	if(arguments.rank == 0)
 	{
 	  displayStatistics(&arguments, &results, &options);
 	}
-
 	//die matrix um die erweiterten elemente verkleinern
 	int add = (arguments.rank > 0) ? 1 : 0;
 	int sub = (arguments.rank < arguments.commSize) ? 1 : 0;
