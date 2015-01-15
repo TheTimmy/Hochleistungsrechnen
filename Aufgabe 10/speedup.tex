@@ -4,14 +4,20 @@
 \usepackage{amsfonts}
 \usepackage{amssymb}
 \usepackage{graphicx}
+\usepackage{hyperref}
 \usepackage[left=2cm,right=2cm,top=2cm,bottom=2cm]{geometry}
 
 \begin{document}
 \par\noindent
-HINWEIS:
-Zum erzeugen der Diagramme wurde ein Bash Script geschrieben, welches der Abgabe beiliegt. Dieses war nötig, da gnuplot Probleme beim erzeugen vieler Diagramme auf einmal hat, aus dem Grund das dieses vom Terminalsystem abhängig sind. Daher erzeugt das Script buildPlot.sh alle png als auch gnuplot Dateien. Die gnuplot Dateien können aber wie gewohnt geplotet werden.\\
+\paragraph*{HINWEIS:}
+\par\noindent\newline
+Sollte wieder erwarten das speedup.gnuplot Script nicht funktionieren so können die Diagramme alternativ mittels eines Bash Script erzeugt werden, welches der Abgabe beiliegt.\\
+Dieses war nötig, da gnuplot manchmal Probleme beim erzeugen vieler Diagramme auf einmal hat.  
+Daher erzeugt das Script buildPlot.sh alle png als auch gnuplot Dateien. Die gnuplot Dateien können aber wie gewohnt mittels gnuplot geplotet werden.\\
 Des Weiteren wurde der Test einmal mit Berechnung über die ganze Matrix durch geführt und einmal die Symmetrieeigenschaften der Matrix ausgenutzt.\\
 \section*{Leistungstest mit ganzer Matrix}
+Die Wahl der Interlines mit der Anzahl der Prozesse kann sich evtl. damit erklären lassen, dass bei wenigen Knoten die Interlines sehr groß sind, was Automatisch zu einem Slowdown der Anwendung führt und bei vielen Prozessen die Teilmatrizen sehr klein sind.
+Diese kleinen Teilmatrizen verursachen aber eine erhöhte Kommunikation bei sehr wenig Berechnungen, was ebenfalls ein Slowdown nach sich zieht.
 \begin{figure}[h!]
 \centering
 \includegraphics[width=0.8\textwidth]{{WEAK_SCALING_JA.dat}.png}
