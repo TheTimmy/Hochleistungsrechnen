@@ -55,5 +55,3 @@ do
 		save "${file}.gnuplot"
 		EOF
 done
-
-cat *.gnuplot > speedup.gnuplot
