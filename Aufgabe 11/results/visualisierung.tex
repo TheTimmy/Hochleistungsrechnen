@@ -1,0 +1,174 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[left=2cm,right=2cm,top=2cm,bottom=2cm]{geometry}
+\usepackage[maxfloats=50]{morefloats}
+
+\begin{document}
+\section*{Knoten 2 Prozesse 3:}
+\paragraph*{Gauss-Seidel:}
+\par\noindent\newline
+\begin{figure}[!htbp]
+\caption{Start}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK2P3Start}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Iterationen}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK2P3Iter}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Einzelne Iteration}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK2P3SingleIter}.png}
+\end{figure}
+\newpage
+\begin{figure}[!htbp]
+\caption{Synchronisation}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK2P3Sync}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Beenden}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK2P3End}.png}
+\end{figure}
+\par\noindent
+Die Berechnung der Matrizen mittels des Gauss-Seidel Verfahrens läuft eigentlich wie erwartet, die einzige Anomalie, welche aber zu erwarten war, tritt bei der Synchronisation der Teilmatrizen nach einer Iteration auf. Hierbei berechnen einige Prozesse die Teilmatrix immer deutlich schneller als die Restlichen, dies folgt aber aus der Berechnung der halben Matrix, da hierbei einige Prozesse deutlich weniger Last haben können als andere.\newline
+Des Weiteren ist auch hier wie bei jedem MPI Programm die sehr lange Startzeit zu sehen, die das Programm benötigt um MPI zu initialisieren.
+\newpage
+\paragraph*{Jacobi:}
+\par\noindent\newline
+\begin{figure}[!htbp]
+\caption{Start}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK2P3Start}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Alle Iterationen}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK2P3Iter}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Eine Iteration}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK2P3SingleIter}.png}
+\end{figure}
+\newpage
+\begin{figure}[!htbp]
+\caption{Synchronisation}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK2P3Sync}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Beenden}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK2P3End}.png}
+\end{figure}
+\par\noindent
+Auch hier tritt der gleiche Effekt wie beim Gauss-Seidel Verfahren auf, sonst verhält sich das Programm wie erwartet.
+\newpage
+\section*{Knoten 4 Prozesse 5:}
+\paragraph*{Gauss-Seidel:}
+\par\noindent\newline
+\begin{figure}[!htbp]
+\caption{Start}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK4P5Start}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Alle Iterationen}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK4P5Iter}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Eine Iteration}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK4P5SingleIter}.png}
+\end{figure}
+\newpage
+\begin{figure}[!htbp]
+\caption{Synchronisation}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK4P5Sync}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Beenden}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK4P5End}.png}
+\end{figure}
+\par\noindent
+Dies entspricht im wesentlichen wieder der Erwartungshaltung, dass sich die Prozesse in der Iteration abwechseln und sonst sauber starten sowie korrekt beenden. Auch hier tritt aber die Auffälligkeit auf, dass einige Prozesse immer schneller rechnen als andere, dies lässt sich aber mit der bereits beschrieben Ursache erklären.
+\newpage
+\paragraph*{Jacobi:}
+\par\noindent\newline
+\begin{figure}[!htbp]
+\caption{Start}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK4P5Start}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Alle Iterationen}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK4P5Iter}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Eine Iteration}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK4P5SingleIter}.png}
+\end{figure}
+\newpage
+\begin{figure}[!htbp]
+\caption{Synchronisation}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK4P5Sync}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Beenden}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK4P5End}.png}
+\end{figure}
+\par\noindent
+Auch hier sind keine Auffälligkeiten zu erkennen und das Programm durchläuft die Schritte wie erwartet.
+\newpage
+\section*{Knoten 10 Prozesse 10:}
+\paragraph*{Gauss-Seidel:}
+\par\noindent\newline
+\begin{figure}[!htbp]
+\caption{Start}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK10P10Start}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Alle Iterationen}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK10P10Iter}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Eine Iteration}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK10P10SingleIter}.png}
+\end{figure}
+\newpage
+\begin{figure}[!htbp]
+\caption{Synchronisation}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK10P10Sync}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Beenden}
+\centering\includegraphics[width=0.7\textwidth]{{GaussSeidelK10P10End}.png}
+\end{figure}
+\par\noindent
+Hier treten zu ersten mal Anomalien auf, die nicht zu erwarten waren, wie zum Beispiel der sehr langen Synchronisationsphase, welche in immer wieder kehrenden Abständen sehr lange benötigt, bis die Prozesse ihr Teilmatrizen ausgetauscht haben.\newline
+Leider haben wir hierfür keine rationale Erklärung bis auf die Vermutung, dass andere Prozesse oder Jobs, welche das Netzwerk benutzen dieses kurzzeitig voll auslasten, so dass keine weitere Kommunikation möglich ist.\\
+Eventuell ist auch der Switch kurzzeitig ausgelastet, so dass ebenfalls keine Kommunikation stattfinden kann.\\
+Eine Andere Erklärung hierfür könnte aber auch sein, dass in OpenMPI nach einer bestimmten Anzahl von Pakten welche versendet wurden Daten zwischen den Prozessen getauscht werde müssen, welche nicht aufgezeichnet wurden oder eine Art Garbage Collection durchgeführt wird. 
+\newpage
+\paragraph*{Jacobi:}
+\par\noindent\newline
+\begin{figure}[!htbp]
+\caption{Start}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK10P10Start}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Alle Iterationen}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK10P10Iter}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Eine Iteration}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK10P10SingleIter}.png}
+\end{figure}
+\newpage
+\begin{figure}[!htbp]
+\caption{Synchronisation}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK10P10Sync}.png}
+\end{figure}
+\begin{figure}[!htbp]
+\caption{Beenden}
+\centering\includegraphics[width=0.7\textwidth]{{JacobiK10P10End}.png}
+\end{figure}
+\par\noindent\newline
+Hier ist ebenfalls eine nicht erwartete Anomalie aufgetreten, da während der Synchronisation das Allreduce den Großteil der Zeit einnimmt. Dies könnte daher kommen, dass ab einer bestimmten Anzahl von Knoten die Allreduce Funktion auf einer Baumstruktur arbeitet und somit, da die Problemgröße noch nicht groß genug ist, sich diese Art der Kommunikation noch nicht lohnt. Hierbei kann es dann zu einer Verzögerung kommen, welche deutlich größer ist, als wenn die Kommunikation linear durchgeführt wird.\\
+Alternativ könnten hier aber auch die gleichen Argumente verwendet werden wie beim Gauss-Seidel Verfahren, da hier aber keines der Argumente wirklich Plausibel ist, handelt es sich hierbei nur um Mutmaßungen.
+\end{document}
