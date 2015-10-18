@@ -1,0 +1,118 @@
+Messung ohne Optimierung:
+Time:
+	real: 1m10.243s
+	user: 1m9.634s
+	sys:  0m0.311s
+
+Aenderung des Speicherzugriffder for schleife
+innerhalb der calculate Funktion.
+aus:
+	for(j = 1; j < N; j++)
+		for(i = 1; i < N; i++)
+wird:
+	for(i = 1; i < N; i++)
+		for(j = 1; j < N; j++)
+
+
+Time:
+	real: 0m46.371s
+	user: 0m45.963s
+	sys:  0m0.210s
+
+Entfernung der Variable korrektur, da diese
+durch eine verschiebung der Operationsreihenfolge
+unoetig wird.
+
+Time:
+	real: 0m44.113s
+	user: 0m43.767s
+	sys:  0m0.192s
+
+Alle if Verzweigung in calculate durch
+switch Anweisungen ersetzten fuer Jumptable optimization.
+Diese duerfte sich allerdings erst im Release build
+bemerkbar machen.
+
+Time:
+	real: 0m44.110s
+	user: 0m43.763s
+	sys:  0m0.198s
+
+Optimierung des Caches innerhalb der for Schleifen,
+in der calculate Funktion.
+So dass:
+
+double** mat1 = Matrix[m1]
+double** mat2 = Matrix[m2]
+
+ausserhalb der for Schleifen benutzt wird
+statt Matrix[m1][i][j] und Matrix[m2][i][j]
+
+Time:
+	real: 0m38.946s
+	user: 0m38.639s
+	sys:  0m0.183s
+
+Analog letzten Schritt fuer die Rows durchfuehren
+
+Time:
+	real: 0m35.582s
+	user: 0m35.268s
+	sys:  0m0.175s
+
+switch statt if in getResiduum
+
+Time:
+	real: 0m35.201s
+	user: 0m34,901s
+	sys:  0m0.173s
+
+Die buildin Funktion fabs nutzen statt den Ausdruck (residuum < 0) ? -residuum : residuum
+
+Time:
+	real: 0m33.109s
+	user: 0m32.833s
+	sys:  0m0.167s
+
+Memset (da buildin) statt manuelles null setzten der Matrix,
+in der Funktion initMatrices.
+
+Time:
+	real: 0m31.623s
+	user: 0m31.388s
+	sys:  0m0.144s
+
+
+Die Stoerfunktion des Residuums vorberechnen, da diese
+nach dem Mathematischen Blatt immer die selben werte annimmt.
+
+Time:
+	real: 0m16.275s
+	user: 0m16.083s
+	sys:  0m0.109s
+
+Da sowohl fuer die Matrix der Stoerfunktion als auch fuer
+die Matrix der Randwerte gilt A^t = A ist sowohl die
+Stoerfunktion als auch die Matrix fuer die Berechnungen orthogonal.
+Damit muss nur eine Strickte untere Dreicksmatrix fuer alle
+werte berechnet werden sowie die Diagonale.
+Die Obere Dreiecksmatrix folgt dann aus der Transponierten der
+unteren Dreicksmatrix.
+Damit ergibt sich folgende beschleunigung:
+
+Time:
+	real: 0m9.619s
+	user: 0m9.451s
+	sys:  0m0.097s
+
+
+
+Zu guter letzt noch die Compiler optionen -O3 und -msse4.1 einschallten,
+somit ergibt sich ein weiterer Leistungsgewinn von.
+
+Time:
+	real: 0m2.667s
+	user: 0m2.581s
+	sys:  0m0.072s
+
+
